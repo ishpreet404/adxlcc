@@ -1,25 +1,25 @@
 /**
- * CYBER CHAUKIDAAR — battery-powered perimeter sentry node (ESP32)
+ * CYBER CHAUKIDAAR — battery-powered perimeter sentry node (ESP32 / ESP32-S3)
  *
  *   2 × ADXL345 ground probes  → band-pass → STA/LTA picker → 10 features → random forest
- *   1 × human-presence radar   → distance / energy (power-gated)
+ *   1 × human-presence radar   → distance / energy (LD2410 binary, LD2420 text, LD1125H text)
+ *   WS2812 ring + buzzer       → state, bearing-to-target, deterrent (optional)
  *   WiFi | BLE | LoRa uplink   → central server (Raspberry Pi)
  *
  * Power profile
- *   ECO   : probes at 25 Hz low-power, ESP32 light-sleeps 1 s between FIFO drains, radar OFF,
- *           radio OFF except a heartbeat every HEARTBEAT_ECO_S.  Any seismic trigger (or the
- *           radar OUT pin, if the radar is always powered) switches to ACTIVE.
+ *   ECO   : probes at 25 Hz low-power, ESP32 light-sleeps 1 s between FIFO drains, radar OFF
+ *           (when gated), radio OFF except a heartbeat every HEARTBEAT_ECO_S.
  *   ACTIVE: probes at 100 Hz, radar ON, features + ML every second, uplink every second,
  *           drops back to ECO after ACTIVE_HOLD_S quiet seconds.
- *   LIVE  : ACTIVE but streams 4 packets/s with waveform snapshots for the dashboard
- *           scopes and ML recording.  Entered from the dashboard (downlink), the serial
- *           console (`live`) or BOOT_LIVE.  Auto-expires.
+ *   LIVE  : ACTIVE but streams 4 packets/s with waveform snapshots (dashboard / ML recording).
  */
 #include <Arduino.h>
 #include <Wire.h>
+#include <SPI.h>
 #include <math.h>
 #include "config.h"
 #include "settings.h"
+#include "indicators.h"
 #include "sensors/adxl345.h"
 #include "sensors/radar.h"
 #include "dsp/filters.h"
@@ -35,12 +35,26 @@
 #include "comm/wifi_transport.h"
 #endif
 
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 String consoleReadLine(); // settings.cpp
 
 // ------------------------------------------------------------------ peripherals
+#if defined(ADXL_USE_SPI)
+static ADXL345 adxlA(PIN_ADXL_A_CS, &SPI);
+static ADXL345 adxlB(PIN_ADXL_B_CS, &SPI);
+#else
 static ADXL345 adxlA(ADXL_A_ADDR);
 static ADXL345 adxlB(ADXL_B_ADDR);
-static Radar radar(Serial2, PIN_RADAR_RX, PIN_RADAR_TX, PIN_RADAR_OUT, PIN_RADAR_POWER);
+#endif
+#if defined(BOARD_S3)
+static HardwareSerial& radarSerial = Serial1;
+#else
+static HardwareSerial& radarSerial = Serial2;
+#endif
+static Radar radar(radarSerial, PIN_RADAR_RX, PIN_RADAR_TX, PIN_RADAR_OUT, PIN_RADAR_POWER);
 static Power power(PIN_BATTERY_ADC, BATTERY_DIVIDER);
 #if defined(TRANSPORT_BLE)
 static BleTransport transportImpl;
@@ -70,7 +84,7 @@ enum class Mode { ECO, LIVE };
 enum class State { IDLE, SUSPECT, EVENT };
 static Mode mode = Mode::ECO;
 static State state = State::IDLE;
-static bool active = false;               // sensors at 100 Hz + radar powered
+static bool active = false;
 static uint16_t fs = FS_ACTIVE_HZ;
 
 static uint32_t seq = 0;
@@ -80,6 +94,7 @@ static uint32_t lastAnalysisMs = 0;
 static uint32_t lastActivityMs = 0;
 static uint32_t liveUntilMs = 0;
 static uint32_t radarOnMs = 0;
+static uint32_t bootMs = 0;
 
 static Features lastFeatures;
 static bool haveFeatures = false;
@@ -87,16 +102,29 @@ static MlResult lastMl;
 static bool haveMl = false;
 static XCorrResult lastXcorr = {0, 0};
 
-// ------------------------------------------------------------------ tamper / deterrent state
-static float gravX = 0, gravY = 0, gravZ = 1;      // slow EMA of probe A raw acceleration (rest orientation)
+// ------------------------------------------------------------------ tamper state
+static float gravX = 0, gravY = 0, gravZ = 1;      // slow EMA of probe A raw acceleration
 static float baseX = 0, baseY = 0, baseZ = 1;      // calibrated rest orientation
 static bool  baseValid = false;
 static float tiltDeg = 0;
 static uint32_t tamperUntilMs = 0;
 static uint32_t impactUntilMs = 0;
-static uint32_t deterUntilMs = 0;
 static bool  calibratedFlag = false;
-static uint32_t bootMs = 0;
+
+// ------------------------------------------------------------------ helpers
+static void led(bool on) {
+    if (PIN_STATUS_LED >= 0) digitalWrite(PIN_STATUS_LED, on ? HIGH : LOW);
+}
+
+static void configureSampling(uint16_t rateHz, bool lowPower) {
+    fs = rateHz;
+    for (Probe* p : {&probeA, &probeB}) {
+        p->filter.configure(fs, HP_CUTOFF_HZ, LP_CUTOFF_HZ);
+        p->picker.configure(fs, STA_SECONDS, LTA_SECONDS, STA_LTA_TRIGGER, STA_LTA_RELEASE, RMS_TRIGGER_G);
+        p->ring.clear();
+        if (p->ok) p->dev->setRate(fs, lowPower);
+    }
+}
 
 static void updateTamper(const ADXL345::Sample& raw) {
     const float a = fs >= 100 ? 0.02f : 0.08f;
@@ -112,47 +140,6 @@ static void updateTamper(const ADXL345::Sample& raw) {
     if (c < -1.0f) c = -1.0f;
     tiltDeg = acosf(c) * 180.0f / (float)M_PI;
     if (tiltDeg > TAMPER_TILT_DEG) tamperUntilMs = millis() + 30000;
-}
-
-static void calibrateRest() {
-    baseX = gravX; baseY = gravY; baseZ = gravZ;
-    baseValid = true;
-    tiltDeg = 0;
-    tamperUntilMs = 0;
-    probeA.picker.reset();
-    probeB.picker.reset();
-    calibratedFlag = true;
-    Serial.printf("[node] calibrated rest orientation (%.2f, %.2f, %.2f)\n", baseX, baseY, baseZ);
-}
-
-static void startDeterrent(uint32_t seconds) {
-    deterUntilMs = millis() + seconds * 1000UL;
-    if (PIN_DETERRENT >= 0) { pinMode(PIN_DETERRENT, OUTPUT); digitalWrite(PIN_DETERRENT, HIGH); }
-    Serial.printf("[node] deterrent burst for %lu s\n", (unsigned long)seconds);
-}
-
-static void serviceDeterrent() {
-    if (!deterUntilMs) return;
-    if ((int32_t)(millis() - deterUntilMs) >= 0) {
-        deterUntilMs = 0;
-        if (PIN_DETERRENT >= 0) digitalWrite(PIN_DETERRENT, LOW);
-        digitalWrite(PIN_STATUS_LED, active ? HIGH : LOW);
-        return;
-    }
-    digitalWrite(PIN_STATUS_LED, (millis() / 80) % 2 ? HIGH : LOW); // fast strobe
-}
-
-// ------------------------------------------------------------------ helpers
-static void led(bool on) { digitalWrite(PIN_STATUS_LED, on ? HIGH : LOW); }
-
-static void configureSampling(uint16_t rateHz, bool lowPower) {
-    fs = rateHz;
-    for (Probe* p : {&probeA, &probeB}) {
-        p->filter.configure(fs, HP_CUTOFF_HZ, LP_CUTOFF_HZ);
-        p->picker.configure(fs, STA_SECONDS, LTA_SECONDS, STA_LTA_TRIGGER, STA_LTA_RELEASE, RMS_TRIGGER_G);
-        p->ring.clear();
-        if (p->ok) p->dev->setRate(fs, lowPower);
-    }
 }
 
 static void drainProbe(Probe& p) {
@@ -174,10 +161,27 @@ static ProbeSummary summarize(Probe& p) {
     ProbeSummary s;
     s.ok = p.ok;
     s.x = p.last.x; s.y = p.last.y; s.z = p.last.z;
-    s.rms = p.ring.rms(fs);       // last second
+    s.rms = p.ring.rms(fs);
     s.peak = p.ring.peak(fs);
     s.staLta = p.picker.ratio();
     return s;
+}
+
+static void calibrateRest() {
+    baseX = gravX; baseY = gravY; baseZ = gravZ;
+    baseValid = true;
+    tiltDeg = 0;
+    tamperUntilMs = 0;
+    probeA.picker.reset();
+    probeB.picker.reset();
+    calibratedFlag = true;
+    indicators.calibratedFeedback();
+    Serial.printf("[node] calibrated rest orientation (%.2f, %.2f, %.2f)\n", baseX, baseY, baseZ);
+}
+
+static void startDeterrent(uint32_t seconds) {
+    indicators.deterrent(seconds);
+    Serial.printf("[node] deterrent burst for %lu s\n", (unsigned long)seconds);
 }
 
 static void enterActive(const char* why) {
@@ -187,8 +191,9 @@ static void enterActive(const char* why) {
     configureSampling(FS_ACTIVE_HZ, false);
     radar.power(true);
     radarOnMs = millis();
-    if (PIN_RADAR_POWER >= 0) delay(50), radar.configureLd2410();
+    if (PIN_RADAR_POWER >= 0) { delay(50); radar.configureLd2410(); }
     led(true);
+    indicators.setMode(Indicators::Mode::ACTIVE);
     Serial.printf("[node] ACTIVE (%s)\n", why);
 }
 
@@ -201,6 +206,7 @@ static void leaveActive() {
     configureSampling(FS_ECO_HZ, true);
     haveFeatures = false; haveMl = false;
     led(false);
+    indicators.setMode(Indicators::Mode::ECO);
     Serial.println("[node] ECO (quiet)");
 }
 
@@ -216,7 +222,7 @@ static void applyDownlink(const Downlink& d) {
             Serial.printf("[node] LIVE for %lu s\n", (unsigned long)((liveUntilMs - millis()) / 1000));
         } else {
             mode = Mode::ECO;
-            lastActivityMs = 0; // fall back to ECO on the next check
+            lastActivityMs = 0;
             Serial.println("[node] ECO requested by server");
         }
     }
@@ -234,7 +240,7 @@ static bool sendPacket(bool withWave) {
     in.state = stateName(state);
     in.battery = power.read();
     in.radar = radar.isPowered() ? &radar.reading() : nullptr;
-    in.radarOk = radar.isPowered() ? radar.healthy() || PIN_RADAR_OUT >= 0 : true;
+    in.radarOk = radar.isPowered() ? (radar.healthy() || PIN_RADAR_OUT >= 0) : true;
     in.a = summarize(probeA);
     in.b = summarize(probeB);
     in.lagMs = lastXcorr.lagMs;
@@ -267,6 +273,20 @@ static bool sendPacket(bool withWave) {
     return ok;
 }
 
+/** Rough relative bearing of the target (deg, + = right) from probe ratio + TDOA, same maths as the server. */
+static bool estimateBearing(float& thetaDeg) {
+    ProbeSummary a = summarize(probeA), b = summarize(probeB);
+    if (!(a.ok && b.ok && a.rms > 0.02f && b.rms > 0.02f)) return false;
+    float range = radar.isPowered() && radar.reading().presence && radar.reading().distanceM > 0.1f ? radar.reading().distanceM : 3.0f;
+    float bias = (b.rms - a.rms) / (a.rms + b.rms);
+    float sinAmp = constrain(2.0f * bias * range / (1.2f * PROBE_SPACING_M), -1.0f, 1.0f);
+    float sinTdoa = constrain(-150.0f * (lastXcorr.lagMs / 1000.0f) / PROBE_SPACING_M, -1.0f, 1.0f);
+    float w = lastXcorr.corr >= 0.5f ? constrain((lastXcorr.corr - 0.5f) / 0.4f, 0.3f, 0.7f) : 0.0f;
+    float s = w * sinTdoa + (1.0f - w) * sinAmp;
+    thetaDeg = asinf(constrain(s, -1.0f, 1.0f)) * 180.0f / (float)M_PI;
+    return true;
+}
+
 static void analyse() {
     static float winA[WINDOW_SAMPLES], winB[WINDOW_SAMPLES];
     if (probeA.ring.count() < WINDOW_SAMPLES) return;
@@ -285,14 +305,24 @@ static void analyse() {
     bool seismic = probeA.picker.triggered() || probeB.picker.triggered() ||
                    ((lastMl.classIndex == 1 || lastMl.classIndex == 2) && lastFeatures.rms > RMS_TRIGGER_G * 0.7f);
     bool radarSees = radar.isPowered() && (radar.reading().presence || radar.outPinActive());
+    bool tamperNow = (int32_t)(millis() - tamperUntilMs) < 0;
     State next = State::IDLE;
     if (seismic && radarSees) next = State::EVENT;
     else if (seismic || radarSees) next = State::SUSPECT;
-    if (next != state) Serial.printf("[node] %s → %s  (ml=%s %.2f, rmsA=%.4f, radar=%s %.2fm)\n",
+    if (next != state) Serial.printf("[node] %s -> %s  (ml=%s %.2f, rmsA=%.4f, radar=%s %.2fm)\n",
         stateName(state), stateName(next), lastMl.label, lastMl.probs[lastMl.classIndex],
         lastFeatures.rms, radarSees ? "yes" : "no", radar.reading().distanceM);
     state = next;
-    if (seismic || radarSees || (int32_t)(millis() - tamperUntilMs) < 0) lastActivityMs = millis();
+    if (seismic || radarSees || tamperNow) lastActivityMs = millis();
+
+    // local indicators
+    float theta;
+    bool haveTheta = estimateBearing(theta);
+    indicators.setBearing(theta, haveTheta);
+    if (tamperNow) indicators.setMode(Indicators::Mode::TAMPER);
+    else if (state == State::EVENT) indicators.setMode(Indicators::Mode::EVENT);
+    else if (state == State::SUSPECT) indicators.setMode(Indicators::Mode::SUSPECT);
+    else indicators.setMode(Indicators::Mode::ACTIVE);
 }
 
 static void handleConsole() {
@@ -307,13 +337,14 @@ static void handleConsole() {
     else if (line == "deter") startDeterrent(10);
     else if (line == "status") {
         Battery b = power.read();
-        Serial.printf("mode=%s active=%d state=%s fs=%u bat=%.2fV(%u%%) A=%s B=%s radar=%s(%s %.2fm) link=%s rssi=%d heap=%u\n",
+        Serial.printf("mode=%s active=%d state=%s fs=%u bat=%.2fV(%u%%) A=%s B=%s radar=%s(%s %.2fm) link=%s rssi=%d tilt=%.1f heap=%u\n",
             mode == Mode::LIVE ? "LIVE" : "ECO", active, stateName(state), fs, b.voltage, b.percent,
             probeA.ok ? "ok" : "MISSING", probeB.ok ? "ok" : "MISSING",
             radar.isPowered() ? "on" : "off", radar.reading().presence ? "presence" : "clear", radar.reading().distanceM,
-            transport.isConnected() ? "up" : "down", transport.rssi(), ESP.getFreeHeap());
+            transport.isConnected() ? "up" : "down", transport.rssi(), tiltDeg, ESP.getFreeHeap());
     } else if (line == "help") {
         settings.print(Serial);
+        Serial.println(F("extra: calibrate | deter | status | live | eco | reboot"));
     }
 }
 
@@ -321,9 +352,11 @@ static void handleConsole() {
 void setup() {
     Serial.begin(SERIAL_BAUD);
     delay(300);
-    pinMode(PIN_STATUS_LED, OUTPUT);
+    if (PIN_STATUS_LED >= 0) pinMode(PIN_STATUS_LED, OUTPUT);
     led(true);
     settings.load();
+    indicators.begin();
+    indicators.setMode(Indicators::Mode::ACTIVE);
     Serial.println();
     Serial.println(F("=========================================================="));
     Serial.printf("  CYBER CHAUKIDAAR SENTRY NODE  fw %s  id %s  wake=%s\n", FW_VERSION, settings.nodeId.c_str(), Power::wakeReason());
@@ -333,29 +366,35 @@ void setup() {
     Battery b = power.read();
     Serial.printf("[pwr] battery %.2f V (%u%%)\n", b.voltage, b.percent);
 
+#if defined(ADXL_USE_SPI)
+    SPI.begin(PIN_SPI_SCK, PIN_SPI_MISO, PIN_SPI_MOSI);
+    probeA.ok = adxlA.begin();
+    probeB.ok = adxlB.begin();
+    Serial.printf("[adxl] SPI probe A (CS %d) %s, probe B (CS %d) %s\n", PIN_ADXL_A_CS, probeA.ok ? "OK" : "MISSING", PIN_ADXL_B_CS, probeB.ok ? "OK" : "MISSING");
+#else
     Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL, 400000);
     probeA.ok = adxlA.begin(Wire);
     probeB.ok = adxlB.begin(Wire);
-    Serial.printf("[adxl] probe A @0x%02X %s, probe B @0x%02X %s\n", ADXL_A_ADDR, probeA.ok ? "OK" : "MISSING",
-                  ADXL_B_ADDR, probeB.ok ? "OK" : "MISSING");
+    Serial.printf("[adxl] I2C probe A @0x%02X %s, probe B @0x%02X %s\n", ADXL_A_ADDR, probeA.ok ? "OK" : "MISSING", ADXL_B_ADDR, probeB.ok ? "OK" : "MISSING");
+#endif
     if (!probeA.ok && probeB.ok) { Serial.println("[adxl] probe A missing — using probe B as A"); probeA.dev = &adxlB; probeA.ok = true; probeB.ok = false; }
 
     radar.begin(RADAR_BAUD);
     radar.configureLd2410();
-    Serial.println("[radar] UART up");
+    Serial.printf("[radar] UART up @ %lu baud\n", (unsigned long)RADAR_BAUD);
 
     transport.begin();
-    Serial.printf("[link] transport: %s\n", transport.name());
+    Serial.printf("[link] transport: %s  ssid: %s  server: %s\n", transport.name(), settings.wifiSsid.c_str(), settings.serverUrl.c_str());
 
     mode = settings.bootLive ? Mode::LIVE : Mode::ECO;
     configureSampling(FS_ACTIVE_HZ, false);
     if (mode == Mode::LIVE) { liveUntilMs = millis() + (uint32_t)LIVE_DEFAULT_S * 1000UL; enterActive("boot"); }
     else { active = true; leaveActive(); }
 
-    // boot heartbeat so the node appears on the dashboard immediately
     delay(400);
     drainProbe(probeA); drainProbe(probeB);
     if (transport.connect()) { sendPacket(false); if (mode == Mode::ECO) transport.disconnect(); }
+    else Serial.println("[link] could not join WiFi — check `cfg show` (ssid/password) and 2.4 GHz coverage");
     lastHeartbeatMs = millis();
     bootMs = millis();
     led(active);
@@ -368,15 +407,16 @@ void loop() {
     if (radar.isPowered()) radar.poll();
     drainProbe(probeA);
     drainProbe(probeB);
-    serviceDeterrent();
-    if (!baseValid && now - bootMs > 3000) calibrateRest();   // learn the rest orientation after settling
+    indicators.update();
+    if (!baseValid && now - bootMs > 3000) calibrateRest();
     bool tamperNow = (int32_t)(now - tamperUntilMs) < 0;
 
     if (!active) {
         // ---------------- ECO watch ----------------
-        bool trig = probeA.picker.triggered() || probeB.picker.triggered() || radar.outPinActive() || tamperNow;
+        bool trig = probeA.picker.triggered() || probeB.picker.triggered() || radar.outPinActive() || tamperNow
+                    || (radar.isPowered() && radar.reading().presence);   // hard-wired radar: its text output wakes us too
         if (trig) {
-            enterActive(tamperNow ? "TAMPER" : radar.outPinActive() ? "radar OUT" : "seismic trigger");
+            enterActive(tamperNow ? "TAMPER" : radar.outPinActive() || radar.reading().presence ? "radar" : "seismic trigger");
             return;
         }
         if (now - lastHeartbeatMs >= (uint32_t)HEARTBEAT_ECO_S * 1000UL) {
@@ -385,8 +425,9 @@ void loop() {
             if (transport.connect()) sendPacket(false);
             transport.disconnect();
             led(false);
-            if (active) return; // a downlink may have switched us to LIVE
+            if (active) return;
         }
+        if (indicators.deterrentActive()) { delay(20); return; }   // keep the strobe/buzzer animating
         power.lightSleep(ECO_LIGHT_SLEEP_MS, radar.isPowered() && PIN_RADAR_OUT >= 0 ? PIN_RADAR_OUT : -1);
         return;
     }
@@ -411,6 +452,5 @@ void loop() {
         leaveActive();
         return;
     }
-    // FIFO holds 32 samples = 320 ms at 100 Hz; a short pause keeps the CPU mostly idle
     delay(20);
 }

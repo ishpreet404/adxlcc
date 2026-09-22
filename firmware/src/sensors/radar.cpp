@@ -1,4 +1,5 @@
 #include "radar.h"
+#include "config.h"
 
 static const uint8_t HDR[4]  = {0xF4, 0xF3, 0xF2, 0xF1};
 static const uint8_t TAIL[4] = {0xF8, 0xF7, 0xF6, 0xF5};
@@ -83,6 +84,18 @@ void Radar::feedAscii(char c) {
     String line = _ascii; _ascii = "";
     line.trim();
     if (!line.length()) return;
+    // --- HLK-LD2420 normal mode: "ON" / "OFF" / "Range 187" (cm) ---
+    if (line == "ON") { _r.valid = true; _r.lastFrameMs = millis(); _r.presence = true; _r.moving = true; if (!_r.movingEnergy) _r.movingEnergy = 60; return; }
+    if (line == "OFF") { _r.valid = true; _r.lastFrameMs = millis(); _r.presence = false; _r.moving = false; _r.distanceM = 0; _r.movingDistanceM = 0; _r.movingEnergy = 0; _r.stationaryEnergy = 0; return; }
+    if (line.startsWith("Range")) {
+        float cm = line.substring(5).toFloat();
+        _r.valid = true; _r.lastFrameMs = millis();
+        _r.distanceM = cm / 100.0f;
+        _r.movingDistanceM = _r.distanceM;
+        if (_r.presence) _r.movingEnergy = (uint8_t)constrain(100.0f - cm / 8.0f, 20.0f, 100.0f); // closer = stronger
+        return;
+    }
+    // --- LD1125H: "mov, dis=2.31" / "occ, dis=1.9" ---
     int k = line.indexOf("dis=");
     bool mov = line.startsWith("mov");
     bool occ = line.startsWith("occ");
@@ -116,7 +129,10 @@ void Radar::sendLd2410Cmd(const uint8_t* cmd, uint8_t len) {
 }
 
 void Radar::configureLd2410() {
-    // enable config -> end engineering mode -> end config. Harmless on other modules.
+#if !defined(RADAR_MODEL_LD2410)
+    return; // LD2420 / LD1125H: leave the module in its factory text-output mode
+#endif
+    // enable config -> end engineering mode -> end config.
     const uint8_t enable[] = {0xFF, 0x00, 0x01, 0x00};
     const uint8_t endEng[] = {0x63, 0x00};
     const uint8_t endCfg[] = {0xFE, 0x00};

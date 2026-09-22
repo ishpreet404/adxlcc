@@ -1,6 +1,25 @@
 # Hardware & wiring
 
-## Bill of materials (one node)
+## Your build: ESP32-S3 + SPI ADXL345 ×2 + LD2420 + WS2812 ring + buzzer (`pio run -e s3`)
+
+| Component | ESP32-S3 pin | Notes |
+|---|---|---|
+| ADXL345 ×2 power | 3V3 / GND | strictly 3.3 V |
+| ADXL345 #1 CS (probe A, left) | GPIO 10 | |
+| ADXL345 #2 CS (probe B, right) | GPIO 9 | |
+| SPI SCK → both `SCL` | GPIO 12 | |
+| SPI MOSI → both `SDA` | GPIO 11 | |
+| SPI MISO ← both `SDO` | GPIO 13 | |
+| LD2420 `OT1`/TX → ESP RX | GPIO 16 | 115200 baud text: `ON` / `OFF` / `Range <cm>` |
+| LD2420 RX ← ESP TX | GPIO 17 | |
+| LD2420 power | 3V3 / GND | |
+| WS2812B ring DIN | GPIO 14 | 8 LEDs, 5 V/VBUS supply; **mount LED 0 pointing along the heading** — it lights toward the target |
+| Buzzer signal | GPIO 5 | active buzzer module (set `BUZZER_PASSIVE 1` for a passive one) |
+| Battery sense | GPIO 8 | centre of 100 k/100 k divider + 0.1 µF |
+
+Radar is hard-wired (no power gating), so the node also wakes from ECO when the LD2420 prints `ON`.
+
+## Bill of materials (generic classic-ESP32 node)
 
 | Qty | Part | Notes |
 |---|---|---|

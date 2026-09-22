@@ -5,7 +5,8 @@
 ```bash
 pip install platformio            # once
 cd firmware
-pio run -e wifi -t upload         # or -e ble / -e lora
+pio run -e s3 -t upload           # ESP32-S3 build (SPI ADXL345, LD2420, ring, buzzer)
+pio run -e wifi -t upload         # classic ESP32 (or -e ble / -e lora)
 pio device monitor -b 115200
 ```
 

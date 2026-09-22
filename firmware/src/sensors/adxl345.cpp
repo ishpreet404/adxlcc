@@ -15,13 +15,26 @@
 #define REG_FIFO_STATUS    0x39
 
 #define SCALE_G            0.0039f   // full-resolution LSB
+#define SPI_READ           0x80
+#define SPI_MULTI          0x40
+
+static const SPISettings kSpiSettings(4000000, MSBFIRST, SPI_MODE3);
 
 bool ADXL345::begin(TwoWire& wire) {
     _wire = &wire;
+    if (usesSpi()) {
+        pinMode(_cs, OUTPUT);
+        digitalWrite(_cs, HIGH);
+        delay(5);
+    }
+    return init();
+}
+
+bool ADXL345::init() {
     _ok = (readReg(REG_DEVID) == 0xE5);
     if (!_ok) return false;
     writeReg(REG_POWER_CTL, 0x00);          // standby while configuring
-    writeReg(REG_DATA_FORMAT, 0x09);        // FULL_RES | ±4 g
+    writeReg(REG_DATA_FORMAT, 0x09);        // FULL_RES | ±4 g (4-wire SPI bit = 0)
     writeReg(REG_INT_ENABLE, 0x00);
     writeReg(REG_FIFO_CTL, 0x9F);           // stream mode, watermark 31
     setRate(100, false);
@@ -78,16 +91,17 @@ bool ADXL345::readSample(Sample& s) {
 void ADXL345::enableActivityInterrupt(float thresholdG) {
     uint8_t thr = (uint8_t)constrain(thresholdG / 0.0625f, 1.0f, 255.0f); // 62.5 mg/LSB
     writeReg(REG_THRESH_ACT, thr);
-    writeReg(REG_ACT_INACT_CTL, 0xF0);      // activity: AC-coupled, X|Y|Z
-    writeReg(REG_INT_MAP, 0x00);            // everything on INT1
-    writeReg(REG_INT_ENABLE, 0x10);         // ACTIVITY
-    readReg(REG_INT_SOURCE);                // clear
+    writeReg(REG_ACT_INACT_CTL, 0xF0);
+    writeReg(REG_INT_MAP, 0x00);
+    writeReg(REG_INT_ENABLE, 0x10);
+    readReg(REG_INT_SOURCE);
 }
 
 void ADXL345::disableInterrupts() { writeReg(REG_INT_ENABLE, 0x00); }
 
 void ADXL345::standby(bool on) { writeReg(REG_POWER_CTL, on ? 0x00 : 0x08); }
 
+// ---- bus access ----------------------------------------------------------------
 uint8_t ADXL345::readReg(uint8_t reg) {
     uint8_t v = 0;
     readRegs(reg, &v, 1);
@@ -95,6 +109,15 @@ uint8_t ADXL345::readReg(uint8_t reg) {
 }
 
 void ADXL345::writeReg(uint8_t reg, uint8_t val) {
+    if (usesSpi()) {
+        _spi->beginTransaction(kSpiSettings);
+        digitalWrite(_cs, LOW);
+        _spi->transfer(reg & 0x3F);
+        _spi->transfer(val);
+        digitalWrite(_cs, HIGH);
+        _spi->endTransaction();
+        return;
+    }
     _wire->beginTransmission(_addr);
     _wire->write(reg);
     _wire->write(val);
@@ -102,6 +125,15 @@ void ADXL345::writeReg(uint8_t reg, uint8_t val) {
 }
 
 bool ADXL345::readRegs(uint8_t reg, uint8_t* buf, uint8_t len) {
+    if (usesSpi()) {
+        _spi->beginTransaction(kSpiSettings);
+        digitalWrite(_cs, LOW);
+        _spi->transfer(reg | SPI_READ | (len > 1 ? SPI_MULTI : 0));
+        for (uint8_t i = 0; i < len; i++) buf[i] = _spi->transfer(0x00);
+        digitalWrite(_cs, HIGH);
+        _spi->endTransaction();
+        return true;
+    }
     _wire->beginTransmission(_addr);
     _wire->write(reg);
     if (_wire->endTransmission(false) != 0) return false;
