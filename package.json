@@ -1,0 +1,16 @@
+{
+  "name": "cybercc",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Cyber Chaukidaar v2 — battery-powered radar + dual-seismic perimeter nodes, edge/server ML, Raspberry Pi server, tactical dashboard, OSINT breach checker",
+  "scripts": {
+    "setup": "npm --prefix server install && npm --prefix dashboard install",
+    "build": "npm --prefix dashboard run build",
+    "start": "npm --prefix server start",
+    "dev:server": "npm --prefix server run dev",
+    "dev:dashboard": "npm --prefix dashboard run dev",
+    "test": "npm --prefix server test",
+    "train": "python ml/train.py",
+    "firmware": "cd firmware && pio run -e wifi"
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+.pio/
+.vscode/
+__pycache__/
+*.pyc
+.venv/
+server/data/*.json
+server/data/*.ndjson
+server/data/*.tmp
+ml/data/*.jsonl
+tools/package-lock.json

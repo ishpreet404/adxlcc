@@ -1,0 +1,55 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .text-shadow-terminal { text-shadow: 0 0 6px rgba(0, 255, 102, 0.4), 0 0 12px rgba(0, 255, 102, 0.15); }
+  .text-shadow-amber { text-shadow: 0 0 6px rgba(255, 176, 0, 0.4), 0 0 12px rgba(255, 176, 0, 0.15); }
+  .text-shadow-red { text-shadow: 0 0 6px rgba(255, 51, 68, 0.5), 0 0 12px rgba(255, 51, 68, 0.2); }
+}
+
+/* Subtle CRT scanlines */
+.scanlines { position: relative; }
+.scanlines::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%);
+  z-index: 50;
+  background-size: 100% 4px;
+  pointer-events: none;
+  opacity: 0.3;
+}
+
+.cursor {
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  background-color: #ffb000;
+  vertical-align: middle;
+  animation: blink 1s step-start infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #080c10; }
+::-webkit-scrollbar-thumb { background: #222f3e; }
+::-webkit-scrollbar-thumb:hover { background: #374151; }
+
+/* Alert flash on the whole frame */
+@keyframes alertFrame {
+  0%, 100% { box-shadow: inset 0 0 0 0 rgba(255, 51, 68, 0); }
+  50% { box-shadow: inset 0 0 0 4px rgba(255, 51, 68, 0.55); }
+}
+.alert-frame { animation: alertFrame 1.2s ease-in-out infinite; }
+
+.kv { display: grid; grid-template-columns: auto 1fr; column-gap: 0.75rem; row-gap: 0.2rem; font-size: 11px; }
+.kv dt { color: #8b949e; white-space: nowrap; }
+.kv dd { color: #e5e7eb; text-align: right; font-variant-numeric: tabular-nums; }
+
+.map-node { cursor: grab; }
+.map-node:active { cursor: grabbing; }

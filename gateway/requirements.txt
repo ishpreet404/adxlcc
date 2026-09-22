@@ -1,0 +1,5 @@
+requests>=2.31
+bleak>=0.21        # BLE gateway
+pyLoRa>=0.3.1      # LoRa gateway (optional, needs an SX127x HAT)
+spidev>=3.6        # LoRa gateway
+RPi.GPIO>=0.7      # LoRa gateway

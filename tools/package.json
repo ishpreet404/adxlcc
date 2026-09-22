@@ -1,0 +1,13 @@
+{
+  "name": "cybercc-tools",
+  "private": true,
+  "version": "2.0.0",
+  "description": "Bench tools: serial bridge and node emulator",
+  "scripts": {
+    "bridge": "node serial-bridge.js",
+    "emulate": "node node-emulator.js"
+  },
+  "dependencies": {
+    "serialport": "^12.0.0"
+  }
+}

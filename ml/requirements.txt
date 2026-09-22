@@ -1,0 +1,2 @@
+# The training pipeline is pure Python 3.8+ and needs NO third-party packages.
+# (Listed here only so tooling that expects a requirements file is happy.)

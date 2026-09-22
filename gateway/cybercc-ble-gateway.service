@@ -1,0 +1,16 @@
+[Unit]
+Description=Cyber Chaukidaar BLE gateway (sentry nodes -> server)
+After=bluetooth.target cybercc-server.service
+Requires=bluetooth.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__ROOT__/gateway
+ExecStart=__ROOT__/gateway/.venv/bin/python __ROOT__/gateway/ble_gateway.py --server http://127.0.0.1:8787
+Restart=always
+RestartSec=5
+# bleak needs access to BlueZ over D-Bus; the default user on Raspberry Pi OS is in the bluetooth group.
+
+[Install]
+WantedBy=multi-user.target

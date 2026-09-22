@@ -1,0 +1,17 @@
+[Unit]
+Description=Cyber Chaukidaar central server (dashboard + node ingest)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__ROOT__/server
+EnvironmentFile=-__ROOT__/server/.env
+ExecStart=/usr/bin/node __ROOT__/server/src/index.js
+Restart=always
+RestartSec=3
+Nice=-5
+
+[Install]
+WantedBy=multi-user.target
