@@ -41,7 +41,7 @@ router.put('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const n = registry.get(req.params.id);
   if (!n) return res.status(404).json({ ok: false, error: 'unknown node' });
-  if (n.simulated) return res.status(400).json({ ok: false, error: 'stop the simulator to remove simulated nodes' });
+  if (n.simulated && n.status === 'ONLINE') return res.status(400).json({ ok: false, error: 'stop the simulator before removing a running simulated node' });
   registry.remove(req.params.id);
   realtime.broadcast('nodeRemoved', { id: req.params.id });
   res.json({ ok: true });

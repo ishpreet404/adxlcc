@@ -25,7 +25,7 @@ const NodeRow = ({ node }) => {
       <td className="py-1 pr-2">{field('spacing')}</td>
       <td className="py-1 flex gap-1">
         <Button size="sm" onClick={save} title="save"><Save className="w-3 h-3" /></Button>
-        {!node.simulated && <Button size="sm" variant="danger" onClick={remove} title="remove"><Trash2 className="w-3 h-3" /></Button>}
+        {(!node.simulated || node.status !== 'ONLINE') && <Button size="sm" variant="danger" onClick={remove} title="remove"><Trash2 className="w-3 h-3" /></Button>}
       </td>
     </tr>
   );
