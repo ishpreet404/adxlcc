@@ -19,7 +19,7 @@ Open the serial monitor and type:
 ```
 cfg id N1
 cfg wifi MySSID MyPassword
-cfg server http://192.168.1.50:8787
+cfg server auto                 # default: find the Pi by UDP broadcast on udp/8788 (or give http://<pi-ip>:8787)
 cfg key mysecret            # only if NODE_API_KEY is set on the server
 cfg show
 reboot

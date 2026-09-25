@@ -12,6 +12,7 @@ const notify = require('../services/notify');
 const activity = require('../services/activity');
 const alerts = require('../services/alerts');
 const { classifier } = require('../services/pipeline');
+const discovery = require('../services/discovery');
 
 module.exports = (simulator) => {
   const router = express.Router();
@@ -24,7 +25,7 @@ module.exports = (simulator) => {
       dashboards: realtime.clientCount, nodes: registry.list().length,
       ml: { vibrationModel: classifier.loaded ? 'random_forest' : 'rules', trainedAt: classifier.meta.trainedAt || null, trees: classifier.trees.length },
       thresholds: { alert: config.ALERT_THRESHOLD, critical: config.CRITICAL_THRESHOLD, loiterS: config.LOITER_SECONDS, prearm: config.PREARM_ENABLED },
-      arming: arming.status(), notify: notify.status(), simulator: simulator.status()
+      arming: arming.status(), notify: notify.status(), discovery: discovery.status(), simulator: simulator.status()
     });
   });
 

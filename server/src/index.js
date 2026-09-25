@@ -25,6 +25,7 @@ const { Simulator } = require('./services/simulator');
 const arming = require('./services/arming');
 const activity = require('./services/activity');
 const notify = require('./services/notify');
+const discovery = require('./services/discovery');
 
 const app = express();
 const server = http.createServer(app);
@@ -88,6 +89,7 @@ server.listen(config.PORT, config.HOST, () => {
   console.log(`  uplink: POST /api/ingest     dashboards: ws://.../ws`);
   console.log(`  site: ${registry.site.width}×${registry.site.height} m, ${registry.list().length} node(s) configured`);
   console.log('==========================================================');
+  discovery.start();
   if (config.SIM_NODES > 0) simulator.start(config.SIM_NODES, config.SIM_SCENARIO);
   events.log('SERVER_STARTED', `Server v2 up on port ${config.PORT}`);
 });
@@ -95,6 +97,7 @@ server.listen(config.PORT, config.HOST, () => {
 function shutdown() {
   console.log('\n[server] shutting down');
   simulator.stop();
+  discovery.stop();
   store.flushSync();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();

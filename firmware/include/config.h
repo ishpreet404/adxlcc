@@ -10,7 +10,7 @@
 #define DEFAULT_NODE_ID        "N1"                       // [NVS]
 #define DEFAULT_WIFI_SSID      "Excitel_Demon"            // [NVS]
 #define DEFAULT_WIFI_PASS      "Vansh2309%"               // [NVS]
-#define DEFAULT_SERVER_URL     "http://192.168.1.100:8787" // [NVS]  <-- put the Raspberry Pi's IP here (hostname -I)
+#define DEFAULT_SERVER_URL     "auto"                     // [NVS] "auto" = find the Raspberry Pi by UDP broadcast; or e.g. "http://192.168.1.11:8787"
 #define DEFAULT_NODE_KEY       ""                         // [NVS] must match NODE_API_KEY on the server (optional)
 
 // ================================================================ BOARD: ESP32-S3 build (-DBOARD_S3)
