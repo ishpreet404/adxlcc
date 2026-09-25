@@ -41,7 +41,11 @@ class Notify {
   /** Chats to deliver to: .env chat id(s) (comma separated) or the discovered ones. */
   get telegramChats() {
     if (config.TELEGRAM_CHAT_ID) {
-      return config.TELEGRAM_CHAT_ID.split(',').map(s => s.trim()).filter(Boolean).map(id => ({ id, name: 'from .env', type: 'env' }));
+      // A common mistake is pasting the bot's own id (the number before ':' in the token) as the chat id.
+      const botId = String(this.telegramToken.split(':')[0]);
+      const ids = config.TELEGRAM_CHAT_ID.split(',').map(s => s.trim()).filter(id => id && id !== botId);
+      if (ids.length) return ids.map(id => ({ id, name: 'from .env', type: 'env' }));
+      if (!this._warnedBotId) { this._warnedBotId = true; console.warn('[notify] TELEGRAM_CHAT_ID is the bot\'s own id — ignoring it; press Start in the bot and use FIND CHATS'); }
     }
     return this.saved.telegramChats;
   }
