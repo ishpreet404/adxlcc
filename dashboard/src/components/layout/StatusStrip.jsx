@@ -11,7 +11,6 @@ export const StatusStrip = () => {
   const arming = useStore(s => s.arming);
   const notify = useStore(s => s.notify);
   const events = useStore(s => s.events);
-  const sim = useStore(s => s.sim);
   const list = Object.values(nodes);
   const online = list.filter(n => n.status === 'ONLINE').length;
   const maxP = list.reduce((m, n) => Math.max(m, n.fusion ? n.fusion.probability : 0), 0);
@@ -39,7 +38,7 @@ export const StatusStrip = () => {
       <Tile label="NODES" value={`${online} / ${list.length}`} color={online === list.length && list.length ? '#00ff66' : '#ffb000'} sub={`${tampers ? `${tampers} TAMPER · ` : ''}${lowBat ? `${lowBat} low battery` : 'batteries ok'}`} icon={Zap} />
       <Tile label="TRACKS" value={tracks.length} color={tracks.length ? '#ff3344' : '#e5e7eb'} sub={tracks[0] ? `${tracks[0].id} ${tracks[0].targetClass} ${tracks[0].speed ? tracks[0].speed + ' m/s' : ''}${tracks[0].running ? ' RUNNING' : ''}` : 'nothing tracked'} />
       <Tile label="ALERTS" value={active} color={active ? '#ff3344' : '#00ff66'} sub={alerts.length ? `${alerts.length} open` : 'perimeter secure'} icon={active ? Bell : BellOff} />
-      <Tile label="NOTIFY" value={channels.length ? channels.join(' · ') : 'dashboard only'} color={channels.length ? '#00e5ff' : '#8b949e'} sub={sim.running ? `sim: ${sim.scenarioLabel}` : 'simulator off'} icon={Send} />
+      <Tile label="NOTIFY" value={channels.length ? channels.join(' · ') : 'dashboard only'} color={channels.length ? '#00e5ff' : '#8b949e'} sub={channels.length ? 'alerts go out' : 'set channels in server/.env'} icon={Send} />
       <div className="flex-[2] min-w-[200px] border border-terminal-border bg-terminal-dark px-3 py-1.5">
         <div className="text-[9px] text-terminal-muted tracking-wider">LAST EVENT</div>
         <div className="text-[11px] truncate">{last ? <><span className="text-terminal-muted tabular-nums">{clock(last.t)}</span> <span className="text-terminal-cyan">{last.type}</span> {last.message}</> : '—'}</div>

@@ -60,14 +60,14 @@ export const useStore = create((set, get) => ({
 
   applySnapshot: (snap) => {
     const nodes = {};
-    for (const n of snap.nodes || []) nodes[n.id] = n;
+    for (const n of snap.nodes || []) if (!n.simulated) nodes[n.id] = n;   // real hardware only
     const sel = get().selectedNodeId;
     set({
       site: snap.site ? { zones: [], ...snap.site } : get().site,
       nodes,
-      tracks: snap.tracks || [],
-      alerts: snap.alerts || [],
-      events: (snap.events || []).slice().sort((p, q) => q.t - p.t),
+      tracks: (snap.tracks || []).filter(t => t.nodes.some(id => nodes[id])),
+      alerts: (snap.alerts || []).filter(a => !a.simulated),
+      events: (snap.events || []).filter(e => !(e.type || '').startsWith('SIM')).sort((p, q) => q.t - p.t),
       sim: snap.sim || get().sim,
       arming: snap.arming || get().arming,
       activity: snap.activity || get().activity,
@@ -82,6 +82,7 @@ export const useStore = create((set, get) => ({
     switch (type) {
       case 'hello': return get().applySnapshot(data);
       case 'node': {
+        if (data.simulated) return undefined;
         const nodes = { ...get().nodes, [data.id]: data };
         const patch = { nodes };
         if (data.latest) {
@@ -105,9 +106,10 @@ export const useStore = create((set, get) => ({
         delete nodes[data.id];
         return set({ nodes, selectedNodeId: get().selectedNodeId === data.id ? Object.keys(nodes)[0] || null : get().selectedNodeId });
       }
-      case 'tracks': return set({ tracks: data });
+      case 'tracks': return set({ tracks: data.filter(t => t.nodes.some(id => get().nodes[id])) });
       case 'alert': {
         const { alert, action } = data;
+        if (alert.simulated) return undefined;
         let alerts = get().alerts.filter(a => a.id !== alert.id);
         if (alert.status === 'ACTIVE' || alert.status === 'ACKNOWLEDGED') alerts = [alert, ...alerts];
         alerts.sort((p, q) => q.updatedAt - p.updatedAt);
@@ -121,8 +123,8 @@ export const useStore = create((set, get) => ({
         }
         return set({ alerts });
       }
-      case 'event': return set({ events: [data, ...get().events].slice(0, 300) });
-      case 'sim': return set({ sim: data });
+      case 'event': return data.type && data.type.startsWith('SIM') ? undefined : set({ events: [data, ...get().events].slice(0, 300) });
+      case 'sim': return undefined;   // simulator hidden from the UI
       case 'site': return set({ site: { zones: [], ...data } });
       case 'arming': {
         const prev = get().arming;

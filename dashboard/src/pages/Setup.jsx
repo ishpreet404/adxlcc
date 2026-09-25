@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, UserRoundSearch, Car, Trash2, Save, PenTool, Check, X, ShieldAlert, Send, Siren, Lock, Unlock, FlaskConical } from 'lucide-react';
+import { Trash2, Save, PenTool, Check, X, Send, Siren, Lock, Unlock, FlaskConical } from 'lucide-react';
 import useStore from '../store/useStore';
 import api from '../services/api';
 import { Card, Button, Input, Separator } from '../components';
@@ -112,14 +112,11 @@ const ArmingPanel = () => {
 export const Setup = () => {
   const nodes = useStore(s => s.nodes);
   const site = useStore(s => s.site);
-  const sim = useStore(s => s.sim);
   const notify = useStore(s => s.notify);
-  const selectedId = useStore(s => s.selectedNodeId);
   const setEditMap = useStore(s => s.setEditMap);
   const setZoneDraft = useStore(s => s.setZoneDraft);
   const toast = useStore(s => s.toast);
   const [dims, setDims] = useState({ width: site.width, height: site.height, name: site.name });
-  const [simNodes, setSimNodes] = useState(2);
   const [health, setHealth] = useState(null);
 
   useEffect(() => { setDims({ width: site.width, height: site.height, name: site.name }); }, [site.width, site.height, site.name]);
@@ -127,13 +124,12 @@ export const Setup = () => {
   useEffect(() => { api.health().then(setHealth).catch(() => {}); const t = setInterval(() => api.health().then(setHealth).catch(() => {}), 5000); return () => clearInterval(t); }, []);
 
   const list = Object.values(nodes).sort((a, b) => a.id.localeCompare(b.id));
-  const selected = selectedId ? nodes[selectedId] : null;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold text-shadow-terminal">$ SITE --setup</h1>
-        <p className="text-terminal-muted text-sm">Place nodes where they physically stand, draw zones, set arming, wire notifications. Heading = direction the radar faces (0° east, 90° north). Probe A is on the node's left, probe B on its right.</p>
+        <p className="text-terminal-muted text-sm">Place nodes where they physically stand, draw zones, set arming, wire notifications. Only real hardware nodes are shown. Heading = direction the radar faces (0° east, 90° north). Probe A is on the node's left, probe B on its right.</p>
       </div>
       <Separator variant="equals" />
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
@@ -172,26 +168,6 @@ export const Setup = () => {
               <Button size="sm" variant="danger" onClick={() => api.siren(true, 3)} disabled={!notify.siren}><Siren className="w-3 h-3 mr-1" /> SIREN 3s</Button>
             </div>
             <div className="text-[10px] text-terminal-muted mt-1">Channels are configured in <code>server/.env</code> and need only the Pi's network / a GPIO relay.</div>
-          </Card>
-
-          <Card className="!h-auto" title={`SIMULATOR · ${sim.running ? 'RUNNING' : 'STOPPED'}`}>
-            <div className="text-[10px] text-terminal-muted mb-2">Simulated nodes run through the same pipeline as hardware and are labelled SIM everywhere.</div>
-            <div className="flex flex-wrap gap-2 items-center text-[11px]">
-              <label className="flex items-center gap-1">nodes <input type="number" min="0" max="4" value={simNodes} onChange={e => setSimNodes(Number(e.target.value))} className="w-12 bg-terminal-black border border-terminal-border px-1" /></label>
-              <select value={sim.scenario} onChange={e => api.simScenario(e.target.value)} className="bg-terminal-black border border-terminal-border px-1 py-0.5">
-                {sim.scenarios.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              {!sim.running
-                ? <Button size="sm" onClick={() => api.simStart(simNodes, sim.scenario)}><Play className="w-3 h-3 mr-1" /> START</Button>
-                : <Button size="sm" variant="danger" onClick={() => api.simStop()}><Square className="w-3 h-3 mr-1" /> STOP</Button>}
-            </div>
-            <Separator variant="dots" />
-            <div className="text-[10px] text-terminal-muted mb-1">One-off events at the selected node ({selected ? selected.name : '—'}):</div>
-            <div className="flex gap-2 flex-wrap">
-              <Button size="sm" variant="warning" onClick={() => api.simIntruder(selectedId, 'HUMAN')}><UserRoundSearch className="w-3 h-3 mr-1" /> WALKER</Button>
-              <Button size="sm" variant="warning" onClick={() => api.simIntruder(selectedId, 'VEHICLE')}><Car className="w-3 h-3 mr-1" /> VEHICLE</Button>
-              <Button size="sm" variant="outline" disabled={!selected || !selected.simulated} onClick={() => api.simTamper(selectedId).catch(e => alert(e.message))} title="only for simulated nodes — tilt a real node instead"><ShieldAlert className="w-3 h-3 mr-1" /> TAMPER</Button>
-            </div>
           </Card>
 
           <Card className="!h-auto" title="SERVER">
