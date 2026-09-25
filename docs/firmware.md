@@ -18,7 +18,7 @@ Open the serial monitor and type:
 
 ```
 cfg id N1
-cfg wifi MySSID MyPassword
+cfg wifi CyberChaukidaar SentryGrid2026   # default = the Pi hotspot; any other 2.4 GHz network works too
 cfg server auto                 # default: find the Pi by UDP broadcast on udp/8788 (or give http://<pi-ip>:8787)
 cfg key mysecret            # only if NODE_API_KEY is set on the server
 cfg show

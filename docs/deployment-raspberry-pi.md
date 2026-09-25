@@ -16,7 +16,8 @@ Dashboard: `http://<pi-ip>:8787`. Logs: `journalctl -u cybercc-server -f`.
 
 | Link | Setup |
 |---|---|
-| **WiFi (default)** | Nodes join your WiFi and POST straight to the Pi. Give the Pi a static IP / DHCP reservation; put that in the nodes with `cfg server http://<ip>:8787`. For a field site with no router, make the Pi an access point (`sudo nmcli dev wifi hotspot ifname wlan0 ssid CyberChaukidaar password SentryGrid2026`); the firmware defaults match this SSID and `http://192.168.4.1:8787`… adjust to the hotspot's IP (`hostname -I`). |
+| **Pi hotspot (recommended)** | The Pi keeps its Ethernet cable for the LAN and turns its own WiFi into the sentry network: `bash gateway/hotspot.sh` (SSID `CyberChaukidaar`, password `SentryGrid2026`, Pi at 192.168.4.1, survives reboots). Nodes use these credentials by default and discover the server automatically, so nothing depends on the venue's WiFi or DHCP. Open the dashboard from a laptop on the LAN at `http://<pi-lan-ip>:8787`, or join the hotspot and use `http://192.168.4.1:8787`. `bash gateway/hotspot.sh --status` shows connected nodes; `--off` removes it. |
+| **Venue WiFi** | Nodes join your WiFi and POST straight to the Pi. Give the Pi a static IP / DHCP reservation; put that in the nodes with `cfg server http://<ip>:8787`. For a field site with no router, make the Pi an access point (`sudo nmcli dev wifi hotspot ifname wlan0 ssid CyberChaukidaar password SentryGrid2026`); the firmware defaults match this SSID and `http://192.168.4.1:8787`… adjust to the hotspot's IP (`hostname -I`). |
 | **BLE** | Flash nodes with `-e ble`; enable `cybercc-ble-gateway.service`. Range ~20–40 m open air. |
 | **LoRa** | SX127x HAT on SPI0 + `gateway/lora_gateway.py` (`pip install pyLoRa spidev RPi.GPIO`). Frequency/sync word must match `config.h`. Range kilometres, but packets are 40-byte summaries (no waveforms). |
 
