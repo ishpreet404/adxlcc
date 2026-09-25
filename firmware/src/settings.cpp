@@ -6,13 +6,13 @@ Settings settings;
 static Preferences prefs;
 
 void Settings::load() {
-    prefs.begin("sentry", true);
-    nodeId    = prefs.getString("id", DEFAULT_NODE_ID);
-    wifiSsid  = prefs.getString("ssid", DEFAULT_WIFI_SSID);
-    wifiPass  = prefs.getString("pass", DEFAULT_WIFI_PASS);
-    serverUrl = prefs.getString("url", DEFAULT_SERVER_URL);
-    nodeKey   = prefs.getString("key", DEFAULT_NODE_KEY);
-    bootLive  = prefs.getBool("live", BOOT_LIVE);
+    prefs.begin("sentry", false);   // read-write so the namespace is created on first boot
+    nodeId    = prefs.isKey("id")   ? prefs.getString("id")   : String(DEFAULT_NODE_ID);
+    wifiSsid  = prefs.isKey("ssid") ? prefs.getString("ssid") : String(DEFAULT_WIFI_SSID);
+    wifiPass  = prefs.isKey("pass") ? prefs.getString("pass") : String(DEFAULT_WIFI_PASS);
+    serverUrl = prefs.isKey("url")  ? prefs.getString("url")  : String(DEFAULT_SERVER_URL);
+    nodeKey   = prefs.isKey("key")  ? prefs.getString("key")  : String(DEFAULT_NODE_KEY);
+    bootLive  = prefs.isKey("live") ? prefs.getBool("live")   : (BOOT_LIVE != 0);
     prefs.end();
 }
 

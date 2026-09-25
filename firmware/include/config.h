@@ -8,9 +8,9 @@
 
 // ---------------------------------------------------------------- identity / network
 #define DEFAULT_NODE_ID        "N1"                       // [NVS]
-#define DEFAULT_WIFI_SSID      "Excitel_Demon"            // [NVS] laptop hotspot (or "CyberChaukidaar" for the Pi hotspot, gateway/hotspot.sh)
+#define DEFAULT_WIFI_SSID      "Excitel\xC2\xAD\xC2\xAD\xC2\xAD\xC2\xAD\xC2\xAD_Demon" // [NVS] laptop hotspot; its name contains 5 invisible soft-hyphen chars (U+00AD) - keep them or rename the hotspot
 #define DEFAULT_WIFI_PASS      "Vansh2309%"               // [NVS]
-#define DEFAULT_SERVER_URL     "http://192.168.1.11:8787" // [NVS] Pi LAN address (`hostname -I` on the Pi). "auto" = UDP discovery, only works when node and Pi share one subnet (Pi hotspot)
+#define DEFAULT_SERVER_URL     "auto"                     // [NVS] "auto" = UDP discovery of the server on the node's own subnet (works when the server is on the same hotspot); or e.g. "http://192.168.1.11:8787"
 #define DEFAULT_NODE_KEY       ""                         // [NVS] must match NODE_API_KEY on the server (optional)
 
 // ================================================================ BOARD: ESP32-S3 build (-DBOARD_S3)

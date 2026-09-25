@@ -52,6 +52,18 @@ bool WiFiTransport::connect() {
         return true;
     }
     _lastFail = millis();
+    // help the operator: list what the radio can actually see
+    static uint32_t lastScan = 0;
+    if (!lastScan || millis() - lastScan > 60000) {
+        lastScan = millis() | 1;
+        WiFi.disconnect(false, true);
+        delay(150);
+        int n = WiFi.scanNetworks();
+        Serial.printf("[wifi] join failed (status %d). %d networks visible:\n", (int)WiFi.status(), n);
+        for (int i = 0; i < n && i < 12; i++)
+            Serial.printf("        %-28s ch%2d %4d dBm %s\n", WiFi.SSID(i).c_str(), WiFi.channel(i), WiFi.RSSI(i), WiFi.SSID(i) == settings.wifiSsid ? "<-- target" : "");
+        WiFi.scanDelete();
+    }
     WiFi.mode(WIFI_OFF);
     return false;
 }
