@@ -32,7 +32,17 @@ ALERT_THRESHOLD=0.70
 CRITICAL_THRESHOLD=0.88
 NODE_API_KEY=          # optional shared secret for nodes
 LEAKOSINT_API_KEY=     # optional, breach checker upstream
+TELEGRAM_BOT_TOKEN=    # optional, alerts to Telegram (see below)
 ```
+
+### Telegram alerts
+
+1. In Telegram, talk to **@BotFather**, `/newbot`, and copy the token.
+2. Put it in `server/.env` as `TELEGRAM_BOT_TOKEN=...` and `sudo systemctl restart cybercc-server` (or paste it in **Setup > Notifications** on the dashboard, no restart needed).
+3. Open your bot in Telegram and press **Start** (for a group: add the bot to the group and send any message).
+4. Dashboard **Setup > Notifications > FIND CHATS**, then **TEST**. The server discovers the chat id itself and stores it in `server/data/notify.json`; every alert now goes to that chat. `TELEGRAM_CHAT_ID` in `.env` is only needed to force specific chat ids.
+
+If TEST fails, the reason (token rejected, no chat yet, blocked bot, no internet on the Pi) is shown under *Recent deliveries*.
 
 Persistent data lives in `server/data/` (site layout, alerts and events as NDJSON) and recorded ML windows in `ml/data/`.
 

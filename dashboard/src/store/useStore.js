@@ -126,6 +126,7 @@ export const useStore = create((set, get) => ({
       case 'event': return data.type && data.type.startsWith('SIM') ? undefined : set({ events: [data, ...get().events].slice(0, 300) });
       case 'sim': return undefined;   // simulator hidden from the UI
       case 'site': return set({ site: { zones: [], ...data } });
+      case 'notify': return set({ notify: data });
       case 'arming': {
         const prev = get().arming;
         if (prev.mode !== data.mode) get().toast({ kind: 'ARMING', severity: data.mode === 'DISARMED' ? 'LOW' : 'INFO', title: `Site ${data.mode}`, message: `by ${data.by}`, ttl: 4000 });
