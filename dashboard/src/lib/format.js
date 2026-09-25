@@ -45,3 +45,22 @@ export const csvEscape = (v) => {
   const s = v === null || v === undefined ? '' : String(v);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
+
+/** Plain-language vibration level for a probe RMS (g). */
+export const vibLevel = (rms) => (rms > 0.12 ? { word: 'STRONG', color: '#ff3344' } : rms > 0.04 ? { word: 'ACTIVE', color: '#ffb000' } : rms > 0.02 ? { word: 'LOW', color: '#00e5ff' } : { word: 'QUIET', color: '#00ff66' });
+
+/** One-sentence verdict for the selected node. */
+export const verdictSentence = (node, track) => {
+  if (!node || !node.latest) return 'Waiting for the first packet from this node.';
+  const f = node.fusion, t = node.latest, pos = node.position;
+  if (t.tamper && t.tamper.flag) return `Node tampered: body ${t.tamper.impact ? 'struck' : 'tilted'} ${fmt(t.tamper.tilt, 0)}° from its rest position.`;
+  if (!f || f.level === 'CLEAR') {
+    if (t.radar.presence) return `Radar sees something ${fmt(t.radar.distance, 1)} m away but the ground is quiet.`;
+    return 'All quiet. Ground probes at noise floor, radar clear.';
+  }
+  const who = f.targetClass === 'VEHICLE' ? 'a vehicle' : f.targetClass === 'HUMAN' ? (track && track.running ? 'someone running' : 'a person walking') : 'movement';
+  const where = pos ? ` about ${fmt(pos.rangeM, 1)} m ${pos.thetaDeg > 15 ? 'to the right' : pos.thetaDeg < -15 ? 'to the left' : 'straight ahead'}` : '';
+  const dir = track && track.speed > 0.15 ? `, heading ${compass(track.headingDeg)} at ${fmt(track.speed, 1)} m/s` : '';
+  const sure = f.probability >= 0.88 ? 'Confirmed' : f.probability >= 0.7 ? 'Likely' : f.probability >= 0.5 ? 'Possibly' : 'Faint signs of';
+  return `${sure} ${who}${where}${dir}.`;
+};

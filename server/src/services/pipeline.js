@@ -22,6 +22,21 @@ const { VibrationClassifier } = require('../ml/classifier');
 
 const classifier = new VibrationClassifier();
 const lastDetectionLog = new Map();
+const mlSmooth = new Map();      // nodeId -> { probs, t } exponential smoothing of class probabilities
+const ML_SMOOTH_ALPHA = 0.45;    // weight of the newest window; ~3 windows to settle
+
+/** Smooth class probabilities across consecutive windows so one noisy window can't flip the label. */
+function smoothMl(nodeId, ml, now) {
+  if (!ml || !ml.probs) return ml;
+  const prev = mlSmooth.get(nodeId);
+  const probs = {};
+  const useprev = prev && now - prev.t < 5000;
+  for (const [c, p] of Object.entries(ml.probs)) probs[c] = useprev ? Number((prev.probs[c] * (1 - ML_SMOOTH_ALPHA) + p * ML_SMOOTH_ALPHA).toFixed(3)) : p;
+  mlSmooth.set(nodeId, { probs, t: now });
+  let best = ml.label, bestP = -1;
+  for (const [c, p] of Object.entries(probs)) if (p > bestP) { bestP = p; best = c; }
+  return { ...ml, label: best, confidence: bestP, probs, raw: { label: ml.label, confidence: ml.confidence }, smoothed: useprev };
+}
 const loiterState = new Map();   // nodeId -> { since, dist, raised }
 const prearmAt = new Map();      // nodeId -> last pre-arm time
 
@@ -63,7 +78,7 @@ function ingest(raw, meta = {}) {
     t.seismic.features = features;
   }
   if (features) {
-    serverMl = classifier.classify(features);
+    serverMl = smoothMl(node.id, classifier.classify(features), t.receivedAt);
     serverMl.explanation = classifier.explain(serverMl.label, features);
   }
   const ml = serverMl || nodeMl;
@@ -73,7 +88,7 @@ function ingest(raw, meta = {}) {
   // ---- fusion + localisation --------------------------------------------
   const fusion = fusionEngine.evaluate(t, ml);
   fusion.nodeMl = nodeMl ? { label: nodeMl.label, confidence: nodeMl.confidence } : null;
-  fusion.serverMl = serverMl ? { label: serverMl.label, confidence: serverMl.confidence, explanation: serverMl.explanation, source: serverMl.source } : null;
+  fusion.serverMl = serverMl ? { label: serverMl.label, confidence: serverMl.confidence, explanation: serverMl.explanation, source: serverMl.source, raw: serverMl.raw, probs: serverMl.probs } : null;
   fusion.running = running;
   fusion.t = t.receivedAt;
 

@@ -83,6 +83,12 @@ def print_confusion(m, names):
     correct = sum(m[i][i] for i in range(len(names)))
     total = sum(sum(r) for r in m)
     print(f"accuracy: {correct}/{total} = {100.0 * correct / max(1, total):.1f}%")
+    # what the alarm logic actually cares about: intrusion (HUMAN, VEHICLE) vs benign (NORMAL, ENVIRONMENT)
+    intr = {names.index("HUMAN"), names.index("VEHICLE")}
+    ok = sum(m[i][j] for i in range(len(names)) for j in range(len(names)) if (i in intr) == (j in intr))
+    missed = sum(m[i][j] for i in intr for j in range(len(names)) if j not in intr)
+    false_alarm = sum(m[i][j] for i in range(len(names)) if i not in intr for j in intr)
+    print(f"intrusion-vs-benign: {100.0 * ok / max(1, total):.1f}%  (missed intrusions {missed}, false intrusions {false_alarm})")
 
 
 # ---------------------------------------------------------------------------
@@ -231,10 +237,10 @@ def synth_fusion_dataset(n=6000, seed=3):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--real", nargs="*", default=[], help="jsonl files/dirs with real labelled windows")
-    ap.add_argument("--per-class", type=int, default=450)
-    ap.add_argument("--trees", type=int, default=8)
-    ap.add_argument("--depth", type=int, default=6)
-    ap.add_argument("--min-leaf", type=int, default=4)
+    ap.add_argument("--per-class", type=int, default=700)
+    ap.add_argument("--trees", type=int, default=12)
+    ap.add_argument("--depth", type=int, default=8)
+    ap.add_argument("--min-leaf", type=int, default=3)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--out", default=os.path.join(HERE, "models"))
     args = ap.parse_args()
@@ -265,6 +271,12 @@ def main():
     print("      test-set confusion matrix:")
     print_confusion(confusion(rf, X_test, y_test, len(CLASSES)), CLASSES)
     print(f"      forest size: {rf.node_count()} nodes")
+    # robustness check: a fresh dataset from a different seed (different soils, cadences, noise floors)
+    shifted = generate(per_class=150, seed=args.seed + 1000)
+    Xs = [as_vector(extract(w)) for w, _ in shifted]
+    ys = [lbl for _, lbl in shifted]
+    print("      unseen-seed confusion matrix:")
+    print_confusion(confusion(rf, Xs, ys, len(CLASSES)), CLASSES)
 
     rf_dict = rf.to_dict(FEATURE_ORDER, CLASSES)
     rf_dict["meta"] = {
@@ -272,7 +284,7 @@ def main():
         "windows": len(X_train),
         "realWindows": len(real),
         "fs": FS,
-        "version": "2.0.0",
+        "version": "2.1.0",
     }
 
     print("[4/5] training fusion logistic regression...")

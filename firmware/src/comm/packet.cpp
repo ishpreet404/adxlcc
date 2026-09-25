@@ -52,7 +52,7 @@ String buildPacket(const PacketInput& in) {
     if (in.features) {
         JsonArray f = seis["f"].to<JsonArray>();
         const float* arr = in.features->asArray();
-        for (int i = 0; i < 10; i++) f.add(arr[i]);
+        for (int i = 0; i < FEATURE_COUNT; i++) f.add(arr[i]);
     }
     if (in.ml) {
         JsonObject ml = doc["ml"].to<JsonObject>();

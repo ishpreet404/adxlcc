@@ -49,9 +49,9 @@ def _best_split(X, y, idx, features, n_classes, min_leaf):
         if len(vals) < 2:
             continue
         # candidate thresholds: midpoints of up to 24 quantiles (fast & robust)
-        if len(vals) > 24:
-            step = len(vals) / 24.0
-            cand = [vals[int(k * step)] for k in range(1, 24)]
+        if len(vals) > 40:
+            step = len(vals) / 40.0
+            cand = [vals[int(k * step)] for k in range(1, 40)]
             cand = sorted(set((a + b) / 2 for a, b in zip(cand[:-1], cand[1:])))
         else:
             cand = [(a + b) / 2 for a, b in zip(vals[:-1], vals[1:])]

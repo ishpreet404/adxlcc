@@ -7,6 +7,8 @@ import RadarScope from '../components/radar/RadarScope';
 import SeismicScope from '../components/seismic/SeismicScope';
 import ProbeCards from '../components/seismic/ProbeCards';
 import SpectrumBars from '../components/seismic/SpectrumBars';
+import EnergyHistory from '../components/seismic/EnergyHistory';
+import SnapshotTiles from '../components/SnapshotTiles';
 import TelemetryColumn from '../components/telemetry/TelemetryColumn';
 import FusionPanel from '../components/FusionPanel';
 import SiteMap from '../components/map/SiteMap';
@@ -15,7 +17,9 @@ import { fmt } from '../lib/format';
 const FEATURES = [
   ['rms', 'RMS', 'g', 4], ['peak', 'Peak', 'g', 4], ['peakToPeak', 'Peak-to-peak', 'g', 4], ['variance', 'Variance', '', 6],
   ['dominantFrequency', 'Dominant freq', 'Hz', 1], ['spectralEnergy', 'Spectral energy', '', 5], ['spectralCentroid', 'Centroid', 'Hz', 1],
-  ['interPeakInterval', 'Inter-peak', 'ms', 0], ['zeroCrossingRate', 'Zero-cross rate', 'Hz', 1], ['crestFactor', 'Crest factor', '', 2]
+  ['interPeakInterval', 'Inter-peak', 'ms', 0], ['zeroCrossingRate', 'Zero-cross rate', 'Hz', 1], ['crestFactor', 'Crest factor', '', 2],
+  ['kurtosis', 'Kurtosis (spikiness)', '', 1], ['spectralFlatness', 'Spectral flatness', '', 3], ['lowBandRatio', 'Low band 1–8 Hz', '', 2],
+  ['highBandRatio', 'High band 20–50 Hz', '', 2], ['cadenceStrength', 'Cadence strength', '', 2]
 ];
 
 /** Multi-series history strip chart (canvas). */
@@ -107,13 +111,14 @@ export const NodeDetail = () => {
           </Card>
         </div>
         <div className="xl:col-span-6 space-y-3">
-          <Card className="!h-auto" title="2-MINUTE HISTORY"><History history={history} /></Card>
+          <Card className="!h-auto" title="LIVE SENSORS"><SnapshotTiles node={node} /></Card>
+          <Card className="!h-auto" title="2-MINUTE HISTORY"><History history={history} /><div className="mt-2"><EnergyHistory nodeId={node.id} height={80} /></div></Card>
           <Card className="!h-auto" title="GROUND PROBES (10 s)">
             <SeismicScope wave={wave} height={180} seconds={6} />
             <div className="mt-2"><ProbeCards node={node} /></div>
           </Card>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card className="!h-auto" title="SPECTRUM · PROBE A"><SpectrumBars spectrum={node.spectrum} /></Card>
+            <Card className="!h-auto" title="SPECTRUM · PROBE A"><SpectrumBars spectrum={node.spectrum} features={f} /></Card>
             <Card className="!h-auto" title="RADAR"><RadarScope node={node} /></Card>
           </div>
         </div>
@@ -132,7 +137,7 @@ export const NodeDetail = () => {
             {ml && (
               <div className="mt-2 space-y-1">
                 <Separator variant="dots" />
-                {Object.entries((node.fusion.serverMl && t && t.ml && t.ml.probs) || {}).length === 0 && <div className="text-[10px] text-terminal-muted">server RF: {ml.label} ({Math.round(ml.confidence * 100)}%)</div>}
+                <div className="text-[10px] text-terminal-muted">server RF (smoothed over windows): <b className="text-gray-200">{ml.label} {Math.round(ml.confidence * 100)}%</b>{ml.raw ? ` · this window: ${ml.raw.label} ${Math.round(ml.raw.confidence * 100)}%` : ''}</div>
                 {t && t.ml && Object.entries(t.ml.probs).map(([c, p]) => (
                   <div key={c} className="flex items-center gap-2 text-[10px]"><span className="w-24 text-terminal-muted">{c}</span><span className="flex-1 h-1.5 bg-terminal-black border border-terminal-border"><span className="block h-full" style={{ width: `${p * 100}%`, background: c === 'HUMAN' ? '#ff3344' : c === 'VEHICLE' ? '#ffb000' : c === 'ENVIRONMENT' ? '#00e5ff' : '#00ff66' }} /></span><span className="w-8 text-right tabular-nums">{Math.round(p * 100)}%</span></div>
                 ))}

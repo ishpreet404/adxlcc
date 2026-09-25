@@ -47,7 +47,7 @@
 }
 .alert-frame { animation: alertFrame 1.2s ease-in-out infinite; }
 
-.kv { display: grid; grid-template-columns: auto 1fr; column-gap: 0.75rem; row-gap: 0.2rem; font-size: 11px; }
+.kv { display: grid; grid-template-columns: auto 1fr; column-gap: 0.75rem; row-gap: 0.25rem; font-size: 12px; }
 .kv dt { color: #8b949e; white-space: nowrap; }
 .kv dd { color: #e5e7eb; text-align: right; font-variant-numeric: tabular-nums; }
 

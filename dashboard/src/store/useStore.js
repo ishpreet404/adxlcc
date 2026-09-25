@@ -10,6 +10,7 @@ export const useStore = create((set, get) => ({
   site: { width: 40, height: 30, name: 'Perimeter Site', zones: [] },
   nodes: {},
   waves: {},
+  histories: {},      // id -> [{t, rmsA, rmsB, radar, p}] rolling 60 s for the sparklines
   tracks: [],
   alerts: [],
   events: [],
@@ -83,6 +84,13 @@ export const useStore = create((set, get) => ({
       case 'node': {
         const nodes = { ...get().nodes, [data.id]: data };
         const patch = { nodes };
+        if (data.latest) {
+          const prev = get().histories[data.id] || [];
+          const l = data.latest;
+          const pt = { t: l.receivedAt || Date.now(), rmsA: l.probes[0].rms, rmsB: l.probes[1].rms, radar: l.radar.presence ? l.radar.distance : null, p: data.fusion ? data.fusion.probability : 0 };
+          const h = prev.length && pt.t - prev[prev.length - 1].t < 150 ? prev : prev.concat(pt);
+          patch.histories = { ...get().histories, [data.id]: h.length > 300 ? h.slice(-300) : h };
+        }
         if (!get().selectedNodeId) patch.selectedNodeId = data.id;
         if (data.wave && data.wave.a && data.wave.a.length) {
           const prev = get().waves[data.id] || { fs: data.wave.fs, a: [], b: [] };
