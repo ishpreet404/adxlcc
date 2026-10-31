@@ -47,15 +47,19 @@ ESP32 + three SSD1306 OLEDs + 5-way keypad + WS2812 status pixel. Firmware: `pio
 | Middle (detail) | The highlighted item; LEFT/RIGHT pages through alerts or nodes |
 | Right (banner) | Newest real alert, or ALL CLEAR with site and mission |
 
-| Menu item | SELECT does |
+Navigation: **UP/DOWN** move, **SELECT** (or RIGHT) opens a page or does the highlighted row,
+**LEFT** goes back. The left screen lists the page's rows; the middle screen explains the
+selected row and shows exactly what SELECT will do.
+
+| Page | Rows |
 |---|---|
-| Overview | **hold 2 s** = panic alarm (CRITICAL alert, sirens on every node on audible missions) |
-| Alerts | acknowledge the shown alert |
-| Nodes | sound that node's siren for 10 s |
-| Arming | **hold 1 s** = arm / disarm (a tap only shows the hint, so the site can't be disarmed by accident) |
-| Mission | switch to the next mission |
-| Siren | silence every node's siren |
-| System | refresh |
+| Overview | Site, Nodes, Alerts, Mission (each opens its page) · Panic alarm (**hold 2 s**) |
+| Alerts | one row per open alert · SELECT acknowledges it |
+| Nodes | one row per node → node page: Sound siren · Silence siren · Live mode 5 min · Calibrate |
+| Arming | ARMED · TEST · DISARMED (**hold 1 s**; the current mode is marked "now") |
+| Mission | Nuclear zone · Border/tunnel · Jewelry store · Perimeter, with what each does |
+| Siren | Silence all · Panic alarm (**hold 2 s**) |
+| System | link, server, panel IP, firmware, free memory · Refresh now |
 
 A progress bar shows while holding; releasing early cancels. Only one action runs at a time
 (extra presses show "busy"), and every action reports its result on the middle screen.
