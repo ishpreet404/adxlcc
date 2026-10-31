@@ -11,6 +11,17 @@
  └─────────────────────────────────────────────┘        └────────────────────────────────────┘
 ```
 
+## Missions, sponsors and the control panel (hackCBS build)
+
+| | What it adds | Docs |
+|---|---|---|
+| **Three missions on one hardware** | *Nuclear Exclusion Zone* (wildlife vs people by gait, replaces guards in a radiation area), *Border & Tunnel Watch* (stationary rhythmic subsurface impacts with nothing on the radar, silent alarm), *Jewelry Store After-Hours* (drilling, impacts, intruders, siren). Switch from the dashboard or the base station. | [docs/use-cases.md](docs/use-cases.md) |
+| **TigerData** | Telemetry + alert hypertables, 1 s continuous aggregate, compression + 30-day retention, SHA-256 evidence hash per alert; live analytics on the Intelligence page. | [docs/operations.md](docs/operations.md#tigerdata) |
+| **Gemini** | Mission-aware narration of every alert, live briefing feed, situation reports, natural-language questions answered by guarded read-only SQL on TigerData. | [docs/operations.md](docs/operations.md) |
+| **Node siren** | Audible missions sound the node's buzzer + ring automatically on armed HIGH alerts; manual "Sound alarm" from dashboard or panel. | [docs/use-cases.md](docs/use-cases.md#response-the-nodes-siren) |
+| **OLED base station** | ESP32 + 3 OLEDs + 5-way keypad + status pixel: menu, alert ack, arm/disarm, siren, mission switch. | [docs/operations.md](docs/operations.md#oled-base-station-nrf-box) |
+| **Phone app** | Responsive dashboard, installable (PWA) over HTTPS with a local CA, optional operator PIN. | [docs/operations.md](docs/operations.md#install-it-as-an-app-on-a-phone) |
+
 ## What is in the box
 
 | Path | What | Status |

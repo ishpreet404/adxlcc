@@ -146,7 +146,7 @@ static void markOffline() {
 static void runAction(const Action& a) {
   int code = -1; const char* ok = "done";
   switch (a.type) {
-    case ACT_ACK:     code = httpPost(String("/api/alerts/") + a.arg + "/acknowledge", "{}"); ok = "alert acknowledged"; break;
+    case ACT_ACK:     code = httpPost(String("/api/alerts/") + a.arg + "/acknowledge", "{\"by\":\"base-station\"}"); ok = "alert acknowledged"; break;
     case ACT_ARM:     code = httpPost("/api/system/arming", "{\"mode\":\"ARMED\",\"by\":\"base-station\"}"); ok = "site ARMED"; break;
     case ACT_DISARM:  code = httpPost("/api/system/arming", "{\"mode\":\"DISARMED\",\"by\":\"base-station\"}"); ok = "site DISARMED"; break;
     case ACT_DETER:   code = httpPost(String("/api/nodes/") + a.arg + "/command", "{\"deter\":10}"); ok = "siren sent"; break;
