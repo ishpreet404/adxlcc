@@ -24,13 +24,21 @@ async function init() {
     timeseries.status().ready, reason.status().enabled, anchorchain.enabled);
 }
 
+// The simulator raises alerts continuously; narrating every one would drain the Gemini
+// free-tier daily cap (20 req/day/model). So by default only REAL (hardware) alerts call
+// Gemini; simulated alerts get the offline template. Set GEMINI_NARRATE_SIM=1 to narrate
+// simulated alerts too (only worth it once billing is enabled on the Gemini key).
+const NARRATE_SIM = (process.env.GEMINI_NARRATE_SIM || '') === '1';
+
 async function handleNewAlert(alert, ctx) {
   if (alert.test) return;
 
   // 1) Gemini narrative (fast, user-visible) — attach to the live alert.
-  reason.narrateAlert(alert, ctx).then(narrative => {
-    if (narrative) alerts.enrich(alert.id, { narrative });
-  }).catch(() => {});
+  if (!alert.simulated || NARRATE_SIM) {
+    reason.narrateAlert(alert, ctx).then(narrative => {
+      if (narrative) alerts.enrich(alert.id, { narrative });
+    }).catch(() => {});
+  }
 
   // 2) Solana anchor of the evidence hash (devnet). Record the alert in TigerData either way.
   let proof = { hash: anchorchain.evidenceHash(alert, ctx), anchored: false };

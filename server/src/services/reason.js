@@ -20,7 +20,7 @@ let GoogleGenAI = null;
 try { ({ GoogleGenAI } = require('@google/genai')); } catch { /* sdk absent — template mode */ }
 
 const KEY = (process.env.GEMINI_API_KEY || '').trim();
-const MODEL = (process.env.GEMINI_MODEL || 'gemini-2.0-flash').trim();
+const MODEL = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
 const enabled = Boolean(GoogleGenAI && KEY);
 const ai = enabled ? new GoogleGenAI({ apiKey: KEY }) : null;
 
@@ -37,13 +37,47 @@ Tables (TimescaleDB / PostgreSQL):
 fusion_level is one of CLEAR, SUSPECT, INTRUSION. ml_label is one of NORMAL, HUMAN, VEHICLE, ENVIRONMENT.
 Use time_bucket() and now() - interval '...' for time ranges.`;
 
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const CALL_TIMEOUT_MS = Number(process.env.GEMINI_TIMEOUT_MS) || 8000;
+const QUOTA_COOLDOWN_MS = 5 * 60 * 1000;
+let quotaBlockedUntil = 0;   // after a quota 429, stop calling Gemini for a while and serve fallbacks
+
+function isQuota(msg) { return /\b429\b|RESOURCE_EXHAUSTED|exceeded your current quota|per day/i.test(msg || ''); }
+function isTransient(msg) { return /\b503\b|UNAVAILABLE|high demand/i.test(msg || ''); }
+
+/**
+ * Call Gemini with a hard timeout and bounded retry. A quota 429 is NOT retried (it would
+ * hang on the SDK's long backoff); instead we open a cooldown and let callers fall back,
+ * so the chatty simulator can never drain the free-tier daily cap or stall a request.
+ */
+async function generate(prompt, { retries = 2 } = {}) {
+  if (Date.now() < quotaBlockedUntil) throw new Error('gemini quota cooldown');
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await Promise.race([
+        // thinkingBudget:0 disables the 3.x models' extended reasoning, which otherwise
+        // takes 30s+ and stalls the request; our prompts are simple narration / SQL.
+        ai.models.generateContent({ model: MODEL, contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } } }),
+        sleep(CALL_TIMEOUT_MS).then(() => { throw new Error('gemini timeout'); })
+      ]);
+      return (res.text || '').trim();
+    } catch (err) {
+      lastErr = err;
+      if (isQuota(err.message)) { quotaBlockedUntil = Date.now() + QUOTA_COOLDOWN_MS; throw err; }
+      if (!isTransient(err.message) || i === retries) throw err;
+      await sleep(400 * Math.pow(2, i));
+    }
+  }
+  throw lastErr;
+}
+
 async function narrateAlert(alert, ctx = {}) {
   const facts = compactFacts(alert, ctx);
   if (!enabled) return templateNarrative(facts);
   try {
     const prompt = `You are a perimeter-security operator. In ONE short sentence (max 25 words), plainly describe this alert for a guard. No preamble, no markdown.\n\n${JSON.stringify(facts)}`;
-    const res = await ai.models.generateContent({ model: MODEL, contents: prompt });
-    const text = (res.text || '').trim();
+    const text = await generate(prompt);
     return text || templateNarrative(facts);
   } catch (err) {
     console.warn('[gemini] narrate failed:', err.message);
@@ -57,8 +91,7 @@ async function answer(question) {
   let sql;
   try {
     const prompt = `Translate the question into ONE read-only PostgreSQL SELECT for this schema. Return ONLY the SQL, no markdown fence, no explanation. Always add a LIMIT (<=200).\n${SQL_SCHEMA_HINT}\n\nQuestion: ${question}`;
-    const res = await ai.models.generateContent({ model: MODEL, contents: prompt });
-    sql = stripFence((res.text || '').trim());
+    sql = stripFence(await generate(prompt));
   } catch (err) {
     return { ok: false, error: `Gemini error: ${err.message}` };
   }
@@ -68,11 +101,7 @@ async function answer(question) {
     const rows = await timeseries.readQuery(sql);
     let summary = null;
     try {
-      const sres = await ai.models.generateContent({
-        model: MODEL,
-        contents: `Question: ${question}\nSQL result rows (JSON): ${JSON.stringify(rows).slice(0, 4000)}\nAnswer the question in one or two plain sentences for a security operator.`
-      });
-      summary = (sres.text || '').trim();
+      summary = await generate(`Question: ${question}\nSQL result rows (JSON): ${JSON.stringify(rows).slice(0, 4000)}\nAnswer the question in one or two plain sentences for a security operator.`, { retries: 1 });
     } catch { /* summary is best-effort */ }
     return { ok: true, sql, rows, summary };
   } catch (err) {
