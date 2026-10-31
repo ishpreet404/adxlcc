@@ -127,6 +127,7 @@ static void configureSampling(uint16_t rateHz, bool lowPower) {
 }
 
 static void updateTamper(const ADXL345::Sample& raw) {
+    if (millis() - bootMs < 3000) { gravX = raw.x; gravY = raw.y; gravZ = raw.z; return; }   // ignore power-on garbage
     const float a = fs >= 100 ? 0.02f : 0.08f;
     gravX += a * (raw.x - gravX); gravY += a * (raw.y - gravY); gravZ += a * (raw.z - gravZ);
     float mag = sqrtf(raw.x * raw.x + raw.y * raw.y + raw.z * raw.z);
@@ -350,6 +351,7 @@ static void handleConsole() {
 
 // ------------------------------------------------------------------ arduino
 void setup() {
+    bootMs = millis();
     Serial.begin(SERIAL_BAUD);
     delay(300);
     if (PIN_STATUS_LED >= 0) pinMode(PIN_STATUS_LED, OUTPUT);
@@ -396,7 +398,6 @@ void setup() {
     if (transport.connect()) { sendPacket(false); if (mode == Mode::ECO) transport.disconnect(); }
     else Serial.println("[link] could not join WiFi — check `cfg show` (ssid/password) and 2.4 GHz coverage");
     lastHeartbeatMs = millis();
-    bootMs = millis();
     led(active);
 }
 
@@ -448,7 +449,7 @@ void loop() {
         mode = Mode::ECO;
         Serial.println("[node] LIVE expired");
     }
-    if (mode == Mode::ECO && now - lastActivityMs >= (uint32_t)ACTIVE_HOLD_S * 1000UL) {
+    if (mode == Mode::ECO && (int32_t)(millis() - lastActivityMs) >= (int32_t)ACTIVE_HOLD_S * 1000) {   // signed: lastActivityMs may be newer than `now`
         leaveActive();
         return;
     }

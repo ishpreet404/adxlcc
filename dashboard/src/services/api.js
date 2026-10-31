@@ -50,6 +50,9 @@ export const api = {
 
   notifyStatus: () => request('/api/system/notify'),
   notifyTest: () => post('/api/system/notify/test'),
+  telegramDiscover: () => post('/api/system/notify/telegram/discover'),
+  telegramConfigure: (body) => put('/api/system/notify/telegram', body),
+  telegramRemoveChat: (id) => del(`/api/system/notify/telegram/chats/${encodeURIComponent(id)}`),
   siren: (on, seconds) => post('/api/system/siren', { on, seconds }),
   activity: () => request('/api/system/activity'),
   resetActivity: () => del('/api/system/activity'),

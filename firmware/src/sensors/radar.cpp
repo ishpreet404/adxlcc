@@ -7,8 +7,8 @@ static const uint8_t TAIL[4] = {0xF8, 0xF7, 0xF6, 0xF5};
 void Radar::begin(uint32_t baud) {
     if (_out >= 0) pinMode(_out, INPUT_PULLDOWN);
     if (_pwr >= 0) { pinMode(_pwr, OUTPUT); }
-    _serial.begin(baud, SERIAL_8N1, _rx, _tx);
     _serial.setRxBufferSize(512);
+    _serial.begin(baud, SERIAL_8N1, _rx, _tx);
     power(true);
 }
 

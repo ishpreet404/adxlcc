@@ -5,7 +5,17 @@
  *   node uplink  →  ML + fusion + localisation  →  alerts  →  dashboards (WebSocket)
  *   plus the unchanged OSINT breach checker at POST /api/breach-check.
  */
-try { if (process.loadEnvFile) process.loadEnvFile(); } catch { /* no .env */ }
+// server/.env (Node >= 20.12 has loadEnvFile; older Node gets a tiny parser)
+try {
+  const envPath = require('path').join(__dirname, '..', '.env');
+  if (process.loadEnvFile) process.loadEnvFile(envPath);
+  else {
+    for (const line of require('fs').readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+      if (m && !line.trim().startsWith('#') && process.env[m[1]] === undefined) process.env[m[1]] = m[2].replace(/^(['"])(.*)\1$/, '$2');
+    }
+  }
+} catch { /* no .env */ }
 
 const http = require('http');
 const fs = require('fs');
@@ -26,6 +36,7 @@ const arming = require('./services/arming');
 const activity = require('./services/activity');
 const notify = require('./services/notify');
 const sponsors = require('./services/sponsors');
+const discovery = require('./services/discovery');
 
 const app = express();
 const server = http.createServer(app);
@@ -82,6 +93,7 @@ realtime.onHello = () => ({
   thresholds: { alert: config.ALERT_THRESHOLD, critical: config.CRITICAL_THRESHOLD, loiterS: config.LOITER_SECONDS },
   serverTime: Date.now()
 });
+notify.onChange = (status) => realtime.broadcast('notify', status);
 realtime.init(server);
 
 server.listen(config.PORT, config.HOST, () => {
@@ -90,6 +102,7 @@ server.listen(config.PORT, config.HOST, () => {
   console.log(`  uplink: POST /api/ingest     dashboards: ws://.../ws`);
   console.log(`  site: ${registry.site.width}×${registry.site.height} m, ${registry.list().length} node(s) configured`);
   console.log('==========================================================');
+  discovery.start();
   if (config.SIM_NODES > 0) simulator.start(config.SIM_NODES, config.SIM_SCENARIO);
   events.log('SERVER_STARTED', `Server v2 up on port ${config.PORT}`);
   sponsors.init().catch(err => console.warn('[sponsors] init failed:', err.message));
@@ -98,6 +111,7 @@ server.listen(config.PORT, config.HOST, () => {
 function shutdown() {
   console.log('\n[server] shutting down');
   simulator.stop();
+  discovery.stop();
   store.flushSync();
   require('./services/timeseries').close().catch(() => {});
   server.close(() => process.exit(0));

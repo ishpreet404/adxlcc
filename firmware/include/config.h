@@ -9,9 +9,9 @@
 
 // ---------------------------------------------------------------- identity / network
 #define DEFAULT_NODE_ID        "N1"                       // [NVS]
-#define DEFAULT_WIFI_SSID      "Excitel_Demon"            // [NVS]
+#define DEFAULT_WIFI_SSID      "Excitel\xC2\xAD\xC2\xAD\xC2\xAD\xC2\xAD\xC2\xAD_Demon" // [NVS] laptop hotspot; its name contains 5 invisible soft-hyphen chars (U+00AD) - keep them or rename the hotspot
 #define DEFAULT_WIFI_PASS      "Vansh2309%"               // [NVS]
-#define DEFAULT_SERVER_URL     "http://10.110.87.26:8787" // [NVS]  <-- put the Raspberry Pi's IP here (hostname -I)
+#define DEFAULT_SERVER_URL     "auto"                     // [NVS] "auto" = UDP discovery of the server on the node's own subnet (works when the server is on the same hotspot); or e.g. "http://10.110.87.26:8787"
 #define DEFAULT_NODE_KEY       ""                         // [NVS] must match NODE_API_KEY on the server (optional)
 
 // ================================================================ BOARD: ESP32-S3 build (-DBOARD_S3)

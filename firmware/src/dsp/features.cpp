@@ -7,7 +7,6 @@
 #endif
 
 void fftRadix2(float* re, float* im, uint16_t n) {
-    // bit reversal
     uint16_t j = 0;
     for (uint16_t i = 1; i < n; i++) {
         uint16_t bit = n >> 1;
@@ -44,16 +43,17 @@ Features extractFeatures(const float* window, uint16_t n, float fs) {
     if (n < 8) return f;
     if (n > 256) n = 256;
 
-    static float sig[256], re[256], im[256];
+    static float sig[256], re[256], im[256], env[256];
     float mean = 0;
     for (uint16_t i = 0; i < n; i++) mean += window[i];
     mean /= n;
 
-    float sumSq = 0, mn = 1e9f, mx = -1e9f, maxAbs = 0;
+    float sumSq = 0, sum4 = 0, mn = 1e9f, mx = -1e9f, maxAbs = 0;
     for (uint16_t i = 0; i < n; i++) {
         float v = window[i] - mean;
         sig[i] = v;
-        sumSq += v * v;
+        float v2 = v * v;
+        sumSq += v2; sum4 += v2 * v2;
         if (v < mn) mn = v;
         if (v > mx) mx = v;
         float a = fabsf(v);
@@ -64,6 +64,8 @@ Features extractFeatures(const float* window, uint16_t n, float fs) {
     f.peak = maxAbs;
     f.peakToPeak = mx - mn;
     f.crestFactor = f.rms > 1e-6f ? maxAbs / f.rms : 0;
+    f.kurtosis = f.variance > 1e-12f ? (sum4 / n) / (f.variance * f.variance) : 0;
+    if (f.kurtosis > 50.0f) f.kurtosis = 50.0f;
 
     uint16_t zc = 0;
     for (uint16_t i = 1; i < n; i++)
@@ -74,18 +76,26 @@ Features extractFeatures(const float* window, uint16_t n, float fs) {
     while (size < n) size <<= 1;
     for (uint16_t i = 0; i < size; i++) { re[i] = i < n ? sig[i] : 0; im[i] = 0; }
     fftRadix2(re, im, size);
-    float maxMag = -1, domFreq = 0, energy = 0, wsum = 0, msum = 0;
+    float maxMag = -1, domFreq = 0, energy = 0, wsum = 0, msum = 0, low = 0, high = 0, logSum = 0;
+    uint16_t bins = 0;
     for (uint16_t k = 1; k < size / 2; k++) {
         float m = sqrtf(re[k] * re[k] + im[k] * im[k]) / size;
         float fr = k * fs / size;
-        energy += m * m;
-        wsum += fr * m;
-        msum += m;
+        float e = m * m;
+        energy += e; wsum += fr * m; msum += m;
+        if (fr >= 1.0f && fr <= 8.0f) low += e;
+        if (fr >= 20.0f && fr <= 50.0f) high += e;
+        logSum += logf(e + 1e-12f);
+        bins++;
         if (m > maxMag) { maxMag = m; domFreq = fr; }
     }
     f.dominantFrequency = domFreq;
     f.spectralEnergy = energy;
     f.spectralCentroid = msum > 0 ? wsum / msum : 0;
+    f.lowBandRatio = energy > 1e-12f ? low / energy : 0;
+    f.highBandRatio = energy > 1e-12f ? high / energy : 0;
+    float arith = bins ? energy / bins : 0;
+    f.spectralFlatness = (bins && arith > 1e-12f) ? expf(logSum / bins) / arith : 0;
 
     float thr = maxAbs * 0.45f;
     int refractory = (int)(0.06f * fs);
@@ -101,6 +111,33 @@ Features extractFeatures(const float* window, uint16_t n, float fs) {
         }
     }
     f.interPeakInterval = cnt ? sumInt / cnt : 0;
+
+    // cadence strength: normalised autocorrelation of the smoothed |signal| envelope
+    float emean = 0;
+    for (uint16_t i = 0; i < n; i++) {
+        int lo = i >= 2 ? i - 2 : 0;
+        int hi = (i + 3 < n) ? i + 3 : n;
+        float s = 0;
+        for (int j = lo; j < hi; j++) s += fabsf(sig[j]);
+        env[i] = s / (hi - lo);
+        emean += env[i];
+    }
+    emean /= n;
+    float e0 = 0;
+    for (uint16_t i = 0; i < n; i++) { env[i] -= emean; e0 += env[i] * env[i]; }
+    float cadence = 0;
+    if (e0 > 1e-12f) {
+        int lagMin = (int)(0.3f * fs);
+        int lagMax = (int)(0.9f * fs);
+        if (lagMax > (int)n - 8) lagMax = n - 8;
+        for (int lag = lagMin; lag <= lagMax; lag++) {
+            float s = 0;
+            for (int i = 0; i < (int)n - lag; i++) s += env[i] * env[i + lag];
+            float r = s / e0;
+            if (r > cadence) cadence = r;
+        }
+    }
+    f.cadenceStrength = cadence > 1.0f ? 1.0f : cadence;
     return f;
 }
 

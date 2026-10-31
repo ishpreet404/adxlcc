@@ -12,7 +12,7 @@ const config = require('../config');
 const registry = require('./registry');
 const realtime = require('./realtime');
 const events = require('./events');
-const { extract } = require('../ml/features');
+const { extract, FEATURE_ORDER } = require('../ml/features');
 
 const TICK_MS = 250;
 const FS = 100;
@@ -272,7 +272,7 @@ class Simulator {
         a: { ok: true, x: Number((0.01 * gauss()).toFixed(3)), y: Number((0.01 * gauss()).toFixed(3)), z: Number((0.99 + 0.01 * gauss()).toFixed(3)), rms: Number(sa.rms.toFixed(4)), peak: Number(sa.peak.toFixed(4)), sl: Number(staLtaA.toFixed(2)) },
         b: { ok: true, x: Number((0.01 * gauss()).toFixed(3)), y: Number((0.01 * gauss()).toFixed(3)), z: Number((0.98 + 0.01 * gauss()).toFixed(3)), rms: Number(sb.rms.toFixed(4)), peak: Number(sb.peak.toFixed(4)), sl: Number((sb.rms / Math.max(0.004, sim.noise * 1.1)).toFixed(2)) },
         seis: { lag: Number(lagMs.toFixed(2)), corr: Number(corr.toFixed(3)), ratio: Number((sa.rms / Math.max(1e-4, sb.rms)).toFixed(3)),
-          f: f ? [f.rms, f.peak, f.peakToPeak, f.variance, f.dominantFrequency, f.spectralEnergy, f.spectralCentroid, f.interPeakInterval, f.zeroCrossingRate, f.crestFactor] : undefined },
+          f: f ? FEATURE_ORDER.map(k => Number((f[k] || 0).toFixed(6))) : undefined },
         ml: sim.ml || undefined,
         wave: { fs: FS, a: wa.map(v => Math.round(v * 1000)), b: wb.map(v => Math.round(v * 1000)) },
         tamper: { tilt: tamperOn ? Number((34 + gauss() * 2).toFixed(1)) : Number(Math.abs(gauss() * 0.4).toFixed(1)), flag: Boolean(tamperOn), imp: Boolean(tamperOn && this.t < sim.tamperUntil - 20) },

@@ -1,14 +1,17 @@
 import React from 'react';
-import { Map, Radar, Activity, ListTree, Eye, EyeOff, Move, Layers, X } from 'lucide-react';
+import { Map, Radar, Activity, ListTree, Eye, EyeOff, Move, Layers, X, BarChart3 } from 'lucide-react';
 import useStore from '../store/useStore';
 import { Card } from '../components';
 import SiteMap from '../components/map/SiteMap';
 import RadarScope from '../components/radar/RadarScope';
 import SeismicScope from '../components/seismic/SeismicScope';
 import ProbeCards from '../components/seismic/ProbeCards';
+import SpectrumBars from '../components/seismic/SpectrumBars';
+import EnergyHistory from '../components/seismic/EnergyHistory';
 import TelemetryColumn from '../components/telemetry/TelemetryColumn';
 import NodeList from '../components/telemetry/NodeList';
 import FusionPanel from '../components/FusionPanel';
+import SnapshotTiles from '../components/SnapshotTiles';
 import AlertFeed, { AlertCard } from '../components/alerts/AlertFeed';
 import EventLog from '../components/alerts/EventLog';
 import StatusStrip from '../components/layout/StatusStrip';
@@ -34,7 +37,6 @@ const LayerBar = () => {
   );
 };
 
-/** Fullscreen map for a big screen: map + alert banner, nothing else. Esc / W to leave. */
 const WallMode = () => {
   const setWallMode = useStore(s => s.setWallMode);
   const alerts = useStore(s => s.alerts);
@@ -73,19 +75,25 @@ export const CommandCenter = () => {
   const node = selectedId ? nodes[selectedId] : null;
   const wave = selectedId ? waves[selectedId] : null;
   const critical = alerts.some(a => a.status === 'ACTIVE' && !a.test);
+  const features = node && node.latest && node.latest.seismic ? node.latest.seismic.features : null;
 
   if (wallMode) return <WallMode />;
 
   return (
     <div className={`space-y-3 ${critical ? 'alert-frame' : ''}`}>
       <StatusStrip />
+
+      {/* selected node at a glance */}
+      <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> LIVE SENSORS · {node ? node.name : 'select a node'}</span>}>
+        <SnapshotTiles node={node} />
+      </Card>
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
         <div className="xl:col-span-3 space-y-3">
           <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><ListTree className="w-3.5 h-3.5" /> NODES ({Object.keys(nodes).length})</span>}><NodeList /></Card>
-          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Radar className="w-3.5 h-3.5" /> RADAR · {node ? node.name : '—'}</span>}><RadarScope node={node} /></Card>
-          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> GROUND PROBES · {node ? node.name : '—'}</span>}>
-            <SeismicScope wave={wave} height={140} />
-            <div className="mt-2"><ProbeCards node={node} /></div>
+          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Radar className="w-3.5 h-3.5" /> RADAR</span>}><RadarScope node={node} /></Card>
+          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><BarChart3 className="w-3.5 h-3.5" /> LAST 60 SECONDS</span>}>
+            {node ? <EnergyHistory nodeId={node.id} /> : <div className="text-[11px] text-terminal-muted">select a node</div>}
           </Card>
         </div>
 
@@ -101,10 +109,17 @@ export const CommandCenter = () => {
             }
             className="min-h-[420px]"
           >
-            <div className="h-[400px] xl:h-[480px]"><SiteMap /></div>
+            <div className="h-[400px] xl:h-[460px]"><SiteMap /></div>
+          </Card>
+          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" /> GROUND VIBRATION · PROBES A &amp; B</span>}>
+            <SeismicScope wave={wave} height={170} />
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+              <ProbeCards node={node} />
+              <SpectrumBars spectrum={node ? node.spectrum : null} features={features} height={110} />
+            </div>
           </Card>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card className="!h-auto" title="FUSION · SELECTED NODE"><FusionPanel node={node} /></Card>
+            <Card className="!h-auto" title="WHY THE SYSTEM THINKS SO"><FusionPanel node={node} /></Card>
             <Card className="!h-auto" title={`ALERTS (${alerts.length})`}>
               {alerts.length ? <div className="space-y-2">{alerts.slice(0, 3).map(a => <AlertCard key={a.id} alert={a} />)}</div> : <AlertFeed limit={0} />}
             </Card>

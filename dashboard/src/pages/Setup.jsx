@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Play, Square, UserRoundSearch, Car, Trash2, Save, PenTool, Check, X, ShieldAlert, Send, Siren, Lock, Unlock, FlaskConical } from 'lucide-react';
+import { Trash2, Save, PenTool, Check, X, Send, Siren, Lock, Unlock, FlaskConical } from 'lucide-react';
 import useStore from '../store/useStore';
 import api from '../services/api';
 import { Card, Button, Input, Separator } from '../components';
@@ -25,7 +25,7 @@ const NodeRow = ({ node }) => {
       <td className="py-1 pr-2">{field('spacing')}</td>
       <td className="py-1 flex gap-1">
         <Button size="sm" onClick={save} title="save"><Save className="w-3 h-3" /></Button>
-        {!node.simulated && <Button size="sm" variant="danger" onClick={remove} title="remove"><Trash2 className="w-3 h-3" /></Button>}
+        {(!node.simulated || node.status !== 'ONLINE') && <Button size="sm" variant="danger" onClick={remove} title="remove"><Trash2 className="w-3 h-3" /></Button>}
       </td>
     </tr>
   );
@@ -109,17 +109,83 @@ const ArmingPanel = () => {
   );
 };
 
+/** Telegram / webhook / siren status, with self-service Telegram setup (token + chat discovery). */
+const NotifyPanel = ({ notify, toast }) => {
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState('');
+  const chats = notify.telegramChats || [];
+  const recent = (notify.recent || []).slice(-4).reverse();
+  const run = async (what, fn, okMsg) => {
+    setBusy(what);
+    try {
+      const r = await fn();
+      toast({ kind: 'CMD', severity: r && r.ok === false ? 'HIGH' : 'INFO', title: what, message: (r && r.error) || (typeof okMsg === 'function' ? okMsg(r) : okMsg), ttl: 5000 });
+    } catch (e) { toast({ kind: 'ERR', severity: 'HIGH', title: what, message: e.message }); }
+    setBusy('');
+  };
+  const tgState = !notify.telegramToken ? ['no token', ''] : notify.telegramError ? [`token rejected: ${notify.telegramError}`, 'text-terminal-red'] : !chats.length ? ['bot ok · waiting for your chat', 'text-terminal-amber'] : [`ready · ${chats.length} chat${chats.length > 1 ? 's' : ''}`, 'text-terminal-green'];
+  return (
+    <div className="space-y-2">
+      <dl className="kv">
+        <dt>telegram</dt><dd className={tgState[1]}>{tgState[0]}{notify.telegramBot && <> · <a className="text-terminal-cyan underline" href={`https://t.me/${notify.telegramBot}`} target="_blank" rel="noreferrer">@{notify.telegramBot}</a></>}</dd>
+        <dt>webhook</dt><dd className={notify.webhook ? 'text-terminal-green' : ''}>{notify.webhook ? 'configured' : 'set WEBHOOK_URL'}</dd>
+        <dt>pi siren GPIO</dt><dd className={notify.siren ? 'text-terminal-green' : ''}>{notify.siren || 'set SIREN_GPIO'}</dd>
+      </dl>
+
+      <div className="border border-terminal-border bg-terminal-dark p-2 space-y-1.5">
+        <div className="text-[10px] text-terminal-muted tracking-wider">TELEGRAM SETUP</div>
+        <ol className="text-[10px] text-terminal-muted list-decimal ml-4 space-y-0.5">
+          <li>Create a bot with <span className="text-terminal-cyan">@BotFather</span>, paste its token below (or set <code>TELEGRAM_BOT_TOKEN</code> in <code>server/.env</code>).</li>
+          <li>Open the bot in Telegram and press <b>Start</b> (a group works too: add the bot and say hi).</li>
+          <li>Click <b>FIND CHATS</b>, then <b>TEST</b>. Every alert now goes to those chats.</li>
+        </ol>
+        <div className="flex gap-1">
+          <Input type="password" placeholder={notify.telegramToken ? `token ${notify.telegramToken} (${notify.telegramTokenSource})` : '123456:ABC… bot token'} value={token} onChange={e => setToken(e.target.value)} className="flex-1" />
+          <Button size="sm" disabled={!token.trim() || busy === 'Save token'} onClick={() => run('Save token', () => api.telegramConfigure({ token: token.trim() }).then(r => { setToken(''); return r; }), r => r.notify.telegramBot ? `bot @${r.notify.telegramBot} accepted` : `rejected: ${r.notify.telegramError}`)}><Save className="w-3 h-3 mr-1" /> SAVE</Button>
+        </div>
+        {chats.length > 0 && (
+          <ul className="text-[11px] space-y-0.5">
+            {chats.map(c => (
+              <li key={c.id} className="flex items-center gap-2">
+                <Check className="w-3 h-3 text-terminal-green" />
+                <span className="font-bold">{c.name}</span><span className="text-terminal-muted">{c.type} · {c.id}</span>
+                {c.type !== 'env' && <button className="ml-auto text-terminal-muted hover:text-terminal-red" title="remove" onClick={() => api.telegramRemoveChat(c.id).catch(e => alert(e.message))}><X className="w-3 h-3" /></button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex gap-1 flex-wrap">
+          <Button size="sm" variant="outline" disabled={!notify.telegramToken || busy === 'Find chats'} onClick={() => run('Find chats', api.telegramDiscover, r => r.chats.length ? `${r.chats.length} chat(s): ${r.chats.map(c => c.name).join(', ')}` : 'none yet — press Start in the bot first, then try again')}>{busy === 'Find chats' ? 'LOOKING…' : 'FIND CHATS'}</Button>
+          <Button size="sm" variant="outline" disabled={busy === 'Test notification'} onClick={() => run('Test notification', api.notifyTest, r => { const last = (r.notify.recent || []).slice(-1)[0]; return r.sent ? (last ? `${last.channel}: ${last.ok ? 'OK' : 'FAILED'} — ${last.detail}` : 'sent') : 'nothing configured'; })}><Send className="w-3 h-3 mr-1" /> TEST</Button>
+          <Button size="sm" variant="danger" onClick={() => api.siren(true, 3)} disabled={!notify.siren}><Siren className="w-3 h-3 mr-1" /> SIREN 3s</Button>
+        </div>
+      </div>
+
+      {recent.length > 0 && (
+        <div>
+          <div className="text-[9px] text-terminal-muted tracking-wider">RECENT DELIVERIES</div>
+          {recent.map((r, i) => (
+            <div key={i} className="text-[10px] flex gap-2 tabular-nums">
+              <span className="text-terminal-muted">{new Date(r.t).toLocaleTimeString()}</span>
+              <span className={r.ok ? 'text-terminal-green' : 'text-terminal-red'}>{r.channel} {r.ok ? 'OK' : 'FAIL'}</span>
+              <span className="text-terminal-muted truncate">{r.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="text-[10px] text-terminal-muted">Webhook and siren are configured in <code>server/.env</code>; Telegram can also be set up right here.</div>
+    </div>
+  );
+};
+
 export const Setup = () => {
   const nodes = useStore(s => s.nodes);
   const site = useStore(s => s.site);
-  const sim = useStore(s => s.sim);
   const notify = useStore(s => s.notify);
-  const selectedId = useStore(s => s.selectedNodeId);
   const setEditMap = useStore(s => s.setEditMap);
   const setZoneDraft = useStore(s => s.setZoneDraft);
   const toast = useStore(s => s.toast);
   const [dims, setDims] = useState({ width: site.width, height: site.height, name: site.name });
-  const [simNodes, setSimNodes] = useState(2);
   const [health, setHealth] = useState(null);
 
   useEffect(() => { setDims({ width: site.width, height: site.height, name: site.name }); }, [site.width, site.height, site.name]);
@@ -127,13 +193,12 @@ export const Setup = () => {
   useEffect(() => { api.health().then(setHealth).catch(() => {}); const t = setInterval(() => api.health().then(setHealth).catch(() => {}), 5000); return () => clearInterval(t); }, []);
 
   const list = Object.values(nodes).sort((a, b) => a.id.localeCompare(b.id));
-  const selected = selectedId ? nodes[selectedId] : null;
 
   return (
     <div className="space-y-4">
       <div>
         <h1 className="text-2xl font-bold text-shadow-terminal">$ SITE --setup</h1>
-        <p className="text-terminal-muted text-sm">Place nodes where they physically stand, draw zones, set arming, wire notifications. Heading = direction the radar faces (0° east, 90° north). Probe A is on the node's left, probe B on its right.</p>
+        <p className="text-terminal-muted text-sm">Place nodes where they physically stand, draw zones, set arming, wire notifications. Only real hardware nodes are shown. Heading = direction the radar faces (0° east, 90° north). Probe A is on the node's left, probe B on its right.</p>
       </div>
       <Separator variant="equals" />
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-3">
@@ -161,38 +226,7 @@ export const Setup = () => {
             <Button size="sm" className="mt-2" onClick={() => api.updateSite({ ...dims, width: Number(dims.width), height: Number(dims.height) }).catch(e => alert(e.message))}>SAVE SITE</Button>
           </Card>
 
-          <Card className="!h-auto" title="NOTIFICATIONS">
-            <dl className="kv">
-              <dt>telegram</dt><dd className={notify.telegram ? 'text-terminal-green' : ''}>{notify.telegram ? 'configured' : 'set TELEGRAM_BOT_TOKEN / CHAT_ID'}</dd>
-              <dt>webhook</dt><dd className={notify.webhook ? 'text-terminal-green' : ''}>{notify.webhook ? 'configured' : 'set WEBHOOK_URL'}</dd>
-              <dt>pi siren GPIO</dt><dd className={notify.siren ? 'text-terminal-green' : ''}>{notify.siren || 'set SIREN_GPIO'}</dd>
-            </dl>
-            <div className="flex gap-1 mt-2">
-              <Button size="sm" variant="outline" onClick={() => api.notifyTest().then(r => toast({ kind: 'CMD', severity: 'INFO', title: 'Test notification', message: r.sent ? 'sent to configured channels' : 'nothing configured (server/.env)' })).catch(e => alert(e.message))}><Send className="w-3 h-3 mr-1" /> TEST</Button>
-              <Button size="sm" variant="danger" onClick={() => api.siren(true, 3)} disabled={!notify.siren}><Siren className="w-3 h-3 mr-1" /> SIREN 3s</Button>
-            </div>
-            <div className="text-[10px] text-terminal-muted mt-1">Channels are configured in <code>server/.env</code> and need only the Pi's network / a GPIO relay.</div>
-          </Card>
-
-          <Card className="!h-auto" title={`SIMULATOR · ${sim.running ? 'RUNNING' : 'STOPPED'}`}>
-            <div className="text-[10px] text-terminal-muted mb-2">Simulated nodes run through the same pipeline as hardware and are labelled SIM everywhere.</div>
-            <div className="flex flex-wrap gap-2 items-center text-[11px]">
-              <label className="flex items-center gap-1">nodes <input type="number" min="0" max="4" value={simNodes} onChange={e => setSimNodes(Number(e.target.value))} className="w-12 bg-terminal-black border border-terminal-border px-1" /></label>
-              <select value={sim.scenario} onChange={e => api.simScenario(e.target.value)} className="bg-terminal-black border border-terminal-border px-1 py-0.5">
-                {sim.scenarios.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
-              </select>
-              {!sim.running
-                ? <Button size="sm" onClick={() => api.simStart(simNodes, sim.scenario)}><Play className="w-3 h-3 mr-1" /> START</Button>
-                : <Button size="sm" variant="danger" onClick={() => api.simStop()}><Square className="w-3 h-3 mr-1" /> STOP</Button>}
-            </div>
-            <Separator variant="dots" />
-            <div className="text-[10px] text-terminal-muted mb-1">One-off events at the selected node ({selected ? selected.name : '—'}):</div>
-            <div className="flex gap-2 flex-wrap">
-              <Button size="sm" variant="warning" onClick={() => api.simIntruder(selectedId, 'HUMAN')}><UserRoundSearch className="w-3 h-3 mr-1" /> WALKER</Button>
-              <Button size="sm" variant="warning" onClick={() => api.simIntruder(selectedId, 'VEHICLE')}><Car className="w-3 h-3 mr-1" /> VEHICLE</Button>
-              <Button size="sm" variant="outline" disabled={!selected || !selected.simulated} onClick={() => api.simTamper(selectedId).catch(e => alert(e.message))} title="only for simulated nodes — tilt a real node instead"><ShieldAlert className="w-3 h-3 mr-1" /> TAMPER</Button>
-            </div>
-          </Card>
+          <Card className="!h-auto" title="NOTIFICATIONS"><NotifyPanel notify={notify} toast={toast} /></Card>
 
           <Card className="!h-auto" title="SERVER">
             {!health ? <div className="text-terminal-muted text-[11px]">connecting…</div> : (

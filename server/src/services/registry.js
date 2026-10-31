@@ -8,6 +8,7 @@
  */
 const config = require('../config');
 const store = require('./store');
+const { FEATURE_ORDER } = require('../ml/features');
 
 const CLASS_NAMES = ['NORMAL', 'HUMAN', 'VEHICLE', 'ENVIRONMENT'];
 
@@ -157,11 +158,8 @@ class Registry {
       const a = raw.a || {}, b = raw.b || {}, rad = raw.radar || {}, seis = raw.seis || {}, ml = raw.ml || null;
       let features = null;
       if (Array.isArray(seis.f) && seis.f.length >= 10) {
-        features = {
-          rms: r(seis.f[0], 5), peak: r(seis.f[1], 5), peakToPeak: r(seis.f[2], 5), variance: r(seis.f[3], 7),
-          dominantFrequency: r(seis.f[4], 2), spectralEnergy: r(seis.f[5], 6), spectralCentroid: r(seis.f[6], 2),
-          interPeakInterval: r(seis.f[7], 1), zeroCrossingRate: r(seis.f[8], 2), crestFactor: r(seis.f[9], 2)
-        };
+        features = {};
+        FEATURE_ORDER.forEach((k, i) => { features[k] = i < seis.f.length ? r(seis.f[i], 6) : 0; });
       } else if (seis.features && typeof seis.features === 'object') {
         features = seis.features;
       }

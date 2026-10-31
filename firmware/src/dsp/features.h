@@ -1,10 +1,13 @@
 #pragma once
 #include <stdint.h>
 
-/** The 10-feature contract shared with ml/features.py and server/src/ml/features.js. */
+#define FEATURE_COUNT 15
+
+/** The 15-feature contract shared with ml/features.py and server/src/ml/features.js (order matters). */
 struct Features {
     float rms, peak, peakToPeak, variance, dominantFrequency,
-          spectralEnergy, spectralCentroid, interPeakInterval, zeroCrossingRate, crestFactor;
+          spectralEnergy, spectralCentroid, interPeakInterval, zeroCrossingRate, crestFactor,
+          kurtosis, spectralFlatness, lowBandRatio, highBandRatio, cadenceStrength;
     const float* asArray() const { return &rms; }
 };
 

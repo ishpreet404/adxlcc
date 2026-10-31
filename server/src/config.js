@@ -16,7 +16,7 @@ module.exports = {
   SITE_WIDTH: num(process.env.SITE_WIDTH, 40),
   SITE_HEIGHT: num(process.env.SITE_HEIGHT, 30),
 
-  SIM_NODES: num(process.env.SIM_NODES, 2),
+  SIM_NODES: num(process.env.SIM_NODES, 0),
   SIM_SCENARIO: process.env.SIM_SCENARIO || 'patrol',
 
   ALERT_THRESHOLD: num(process.env.ALERT_THRESHOLD, 0.70),

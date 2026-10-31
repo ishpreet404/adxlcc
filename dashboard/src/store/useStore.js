@@ -10,6 +10,7 @@ export const useStore = create((set, get) => ({
   site: { width: 40, height: 30, name: 'Perimeter Site', zones: [] },
   nodes: {},
   waves: {},
+  histories: {},      // id -> [{t, rmsA, rmsB, radar, p}] rolling 60 s for the sparklines
   tracks: [],
   alerts: [],
   events: [],
@@ -59,14 +60,14 @@ export const useStore = create((set, get) => ({
 
   applySnapshot: (snap) => {
     const nodes = {};
-    for (const n of snap.nodes || []) nodes[n.id] = n;
+    for (const n of snap.nodes || []) if (!n.simulated) nodes[n.id] = n;   // real hardware only
     const sel = get().selectedNodeId;
     set({
       site: snap.site ? { zones: [], ...snap.site } : get().site,
       nodes,
-      tracks: snap.tracks || [],
-      alerts: snap.alerts || [],
-      events: (snap.events || []).slice().sort((p, q) => q.t - p.t),
+      tracks: (snap.tracks || []).filter(t => t.nodes.some(id => nodes[id])),
+      alerts: (snap.alerts || []).filter(a => !a.simulated),
+      events: (snap.events || []).filter(e => !(e.type || '').startsWith('SIM')).sort((p, q) => q.t - p.t),
       sim: snap.sim || get().sim,
       arming: snap.arming || get().arming,
       activity: snap.activity || get().activity,
@@ -81,8 +82,16 @@ export const useStore = create((set, get) => ({
     switch (type) {
       case 'hello': return get().applySnapshot(data);
       case 'node': {
+        if (data.simulated) return undefined;
         const nodes = { ...get().nodes, [data.id]: data };
         const patch = { nodes };
+        if (data.latest) {
+          const prev = get().histories[data.id] || [];
+          const l = data.latest;
+          const pt = { t: l.receivedAt || Date.now(), rmsA: l.probes[0].rms, rmsB: l.probes[1].rms, radar: l.radar.presence ? l.radar.distance : null, p: data.fusion ? data.fusion.probability : 0 };
+          const h = prev.length && pt.t - prev[prev.length - 1].t < 150 ? prev : prev.concat(pt);
+          patch.histories = { ...get().histories, [data.id]: h.length > 300 ? h.slice(-300) : h };
+        }
         if (!get().selectedNodeId) patch.selectedNodeId = data.id;
         if (data.wave && data.wave.a && data.wave.a.length) {
           const prev = get().waves[data.id] || { fs: data.wave.fs, a: [], b: [] };
@@ -97,9 +106,10 @@ export const useStore = create((set, get) => ({
         delete nodes[data.id];
         return set({ nodes, selectedNodeId: get().selectedNodeId === data.id ? Object.keys(nodes)[0] || null : get().selectedNodeId });
       }
-      case 'tracks': return set({ tracks: data });
+      case 'tracks': return set({ tracks: data.filter(t => t.nodes.some(id => get().nodes[id])) });
       case 'alert': {
         const { alert, action } = data;
+        if (alert.simulated) return undefined;
         let alerts = get().alerts.filter(a => a.id !== alert.id);
         if (alert.status === 'ACTIVE' || alert.status === 'ACKNOWLEDGED') alerts = [alert, ...alerts];
         alerts.sort((p, q) => q.updatedAt - p.updatedAt);
@@ -113,9 +123,10 @@ export const useStore = create((set, get) => ({
         }
         return set({ alerts });
       }
-      case 'event': return set({ events: [data, ...get().events].slice(0, 300) });
-      case 'sim': return set({ sim: data });
+      case 'event': return data.type && data.type.startsWith('SIM') ? undefined : set({ events: [data, ...get().events].slice(0, 300) });
+      case 'sim': return undefined;   // simulator hidden from the UI
       case 'site': return set({ site: { zones: [], ...data } });
+      case 'notify': return set({ notify: data });
       case 'arming': {
         const prev = get().arming;
         if (prev.mode !== data.mode) get().toast({ kind: 'ARMING', severity: data.mode === 'DISARMED' ? 'LOW' : 'INFO', title: `Site ${data.mode}`, message: `by ${data.by}`, ttl: 4000 });

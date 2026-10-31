@@ -12,6 +12,7 @@ const notify = require('../services/notify');
 const activity = require('../services/activity');
 const alerts = require('../services/alerts');
 const { classifier } = require('../services/pipeline');
+const discovery = require('../services/discovery');
 
 module.exports = (simulator) => {
   const router = express.Router();
@@ -24,7 +25,7 @@ module.exports = (simulator) => {
       dashboards: realtime.clientCount, nodes: registry.list().length,
       ml: { vibrationModel: classifier.loaded ? 'random_forest' : 'rules', trainedAt: classifier.meta.trainedAt || null, trees: classifier.trees.length },
       thresholds: { alert: config.ALERT_THRESHOLD, critical: config.CRITICAL_THRESHOLD, loiterS: config.LOITER_SECONDS, prearm: config.PREARM_ENABLED },
-      arming: arming.status(), notify: notify.status(), simulator: simulator.status()
+      arming: arming.status(), notify: notify.status(), discovery: discovery.status(), simulator: simulator.status()
     });
   });
 
@@ -73,6 +74,16 @@ module.exports = (simulator) => {
     const sent = await notify.send({ kind: 'TEST', title: 'Test notification', message: `Sent from the dashboard at ${new Date().toLocaleString()}`, force: true });
     res.json({ ok: true, sent, notify: notify.status() });
   });
+  router.post('/notify/telegram/discover', async (req, res) => {
+    if (!notify.bot) await notify.checkTelegram();
+    const r = await notify.discoverTelegramChats();
+    res.json({ ok: !r.error, error: r.error, chats: r.chats, added: r.added || 0, notify: notify.status() });
+  });
+  router.put('/notify/telegram', async (req, res) => {
+    const { token, chats } = req.body || {};
+    res.json({ ok: true, notify: await notify.configureTelegram({ token, chats }) });
+  });
+  router.delete('/notify/telegram/chats/:id', (req, res) => res.json({ ok: true, notify: notify.removeTelegramChat(req.params.id) }));
   router.post('/siren', (req, res) => {
     const { on = true, seconds } = req.body || {};
     if (on) notify.siren(seconds); else notify.sirenOff();

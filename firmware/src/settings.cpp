@@ -18,7 +18,7 @@ static String getOr(const char* key, const char* def) {
 }
 
 void Settings::load() {
-    prefs.begin("sentry", true);
+    prefs.begin("sentry", false);   // read-write so the namespace is created on first boot
     nodeId    = getOr("id", DEFAULT_NODE_ID);
     wifiSsid  = getOr("ssid", DEFAULT_WIFI_SSID);
     wifiPass  = getOr("pass", DEFAULT_WIFI_PASS);
