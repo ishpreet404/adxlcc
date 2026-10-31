@@ -56,7 +56,8 @@ static SemaphoreHandle_t mtx;
 static volatile bool dataDirty = true;      // netTask -> UI: new snapshot available
 
 // ------------------------------------------------------------------ actions (UI -> net task)
-enum ActType : uint8_t { ACT_ACK, ACT_ARM, ACT_DISARM, ACT_DETER, ACT_MISSION, ACT_REFRESH, ACT_SILENCE, ACT_PANIC };
+enum ActType : uint8_t { ACT_ACK, ACT_ARM, ACT_DISARM, ACT_DETER, ACT_MISSION, ACT_REFRESH, ACT_SILENCE, ACT_PANIC,
+                         ACT_TEST, ACT_SET_MISSION, ACT_NODE_SILENCE, ACT_NODE_LIVE, ACT_NODE_CAL };
 struct Action { ActType type; char arg[48]; };
 static QueueHandle_t actQ;
 static String actionMsg; static uint32_t actionMsgAt = 0;   // feedback line on OLED1 (UI-owned)
@@ -156,6 +157,11 @@ static void runAction(const Action& a) {
     case ACT_REFRESH: code = 200; ok = "refreshed"; break;
     case ACT_SILENCE: code = httpPost("/api/system/silence", "{\"by\":\"base-station\"}"); ok = "sirens silenced"; break;
     case ACT_PANIC:   code = httpPost("/api/system/panic", "{\"by\":\"base-station\"}"); ok = "PANIC ALARM SENT"; break;
+    case ACT_TEST:    code = httpPost("/api/system/arming", "{\"mode\":\"TEST\",\"by\":\"base-station\"}"); ok = "site in TEST mode"; break;
+    case ACT_SET_MISSION: code = httpPost("/api/system/profile", String("{\"id\":\"") + a.arg + "\",\"by\":\"base-station\"}"); ok = "mission changed"; break;
+    case ACT_NODE_SILENCE: code = httpPost(String("/api/nodes/") + a.arg + "/command", "{\"silence\":true}"); ok = "silence sent"; break;
+    case ACT_NODE_LIVE:    code = httpPost(String("/api/nodes/") + a.arg + "/command", "{\"mode\":\"LIVE\",\"liveFor\":300}"); ok = "live mode on (5 min)"; break;
+    case ACT_NODE_CAL:     code = httpPost(String("/api/nodes/") + a.arg + "/command", "{\"calibrate\":true}"); ok = "calibrating"; break;
   }
   snprintf(actionResult, sizeof(actionResult), "%s", (code >= 200 && code < 300) ? ok : (code < 0 ? "no server link" : "server refused"));
   actionDone = true;
@@ -223,49 +229,166 @@ static void setDim(bool d) {
 static int realAlerts(const Snap& v) { int n = 0; for (int i = 0; i < v.alertCount; i++) if (!v.alerts[i].sim) n++; return n; }
 
 // ---- hold-to-confirm for consequential actions (disarm, panic): a tap only shows the hint
-struct Hold { bool active = false; uint32_t start = 0, need = 0; ActType act = ACT_REFRESH; const char* label = ""; const char* pending = ""; };
+struct Hold { bool active = false; uint32_t start = 0, need = 0; ActType act = ACT_REFRESH; String arg; String label; const char* pending = ""; };
 static Hold hold;
-static void startHold(uint32_t ms, ActType act, const char* label, const char* pending) {
+static void startHold(uint32_t ms, ActType act, const String& arg, const String& label, const char* pending) {
   if (actionPending) { actionMsg = "busy - one moment..."; actionMsgAt = millis(); return; }
-  hold.active = true; hold.start = millis(); hold.need = ms; hold.act = act; hold.label = label; hold.pending = pending;
+  hold.active = true; hold.start = millis(); hold.need = ms; hold.act = act; hold.arg = arg; hold.label = label; hold.pending = pending;
+}
+
+// ---- page model -------------------------------------------------------------------
+// MENU   : left screen lists the pages, middle previews the highlighted one.  SELECT/RIGHT opens it.
+// PAGE   : left screen lists the page's rows, middle shows the selected row's details and what
+//          SELECT will do.  UP/DOWN move, SELECT/RIGHT act or open, LEFT goes back.
+// NODE   : actions for one node (siren, silence, live mode, calibrate).  LEFT back to Nodes.
+enum Screen { SCR_MENU, SCR_PAGE, SCR_NODE };
+enum Go : uint8_t { GO_NONE, GO_PAGE, GO_NODE };
+struct Row {
+  String label, right, detail;
+  bool hasAct = false; ActType act = ACT_REFRESH; String arg; uint16_t holdMs = 0; const char* pending = "";
+  Go go = GO_NONE; int target = 0; bool enabled = true;
+};
+static Screen screen = SCR_MENU;
+static int pageId = 0, rowSel = 0, rowTop = 0, nodeIdx = 0;
+static Row rows[10]; static int rowCount = 0;
+
+static const char* MISSION_IDS[4]    = { "nuclear", "border", "retail", "perimeter" };
+static const char* MISSION_NAMES[4]  = { "Nuclear zone", "Border/tunnel", "Jewelry store", "Perimeter" };
+static const char* MISSION_DETAIL[4] = {
+  "Unmanned exclusion zone: tells wildlife from people by gait. People are CRITICAL. Siren on.",
+  "Tunnel watch: rhythmic digging with nothing on the radar. Silent alarm, no siren.",
+  "After hours: drilling, hammering and intruders. Loud siren for 15 s.",
+  "General fence line: people and vehicles. Siren on HIGH alerts." };
+
+static Row& addRow(const String& label, const String& right = "") {
+  Row& r = rows[rowCount++]; r = Row(); r.label = label; r.right = right; return r;
+}
+static void addAct(const String& label, const String& right, ActType act, const String& arg, const char* pending, const String& detail, uint16_t holdMs = 0) {
+  if (rowCount >= 10) return;
+  Row& r = addRow(label, right); r.hasAct = true; r.act = act; r.arg = arg; r.pending = pending; r.detail = detail; r.holdMs = holdMs;
+}
+static void addGo(const String& label, const String& right, Go go, int target, const String& detail) {
+  if (rowCount >= 10) return;
+  Row& r = addRow(label, right); r.go = go; r.target = target; r.detail = detail;
+}
+static void addInfo(const String& label, const String& right, const String& detail) {
+  if (rowCount >= 10) return;
+  Row& r = addRow(label, right); r.detail = detail;
+}
+
+static void buildRows() {
+  rowCount = 0;
+  if (screen == SCR_NODE) {
+    if (nodeIdx >= view.nodeCount) { addInfo("Node gone", "", "This node is no longer reported by the server. Press LEFT."); return; }
+    NodeV& n = view.nodes[nodeIdx];
+    String info = n.status + ", " + n.level + (n.battery == -2 ? ", USB power" : n.battery >= 0 ? ", battery " + String(n.battery) + "%" : "") + ", rssi " + String(n.rssi);
+    if (n.sim) { addInfo("Simulated node", "", "Simulated nodes have no siren or sensors to command. " + info); return; }
+    addAct("Sound siren", "10s", ACT_DETER, n.id, "sending siren...", "Sounds the buzzer and strobes the ring on " + n.name + " for 10 s. " + info);
+    addAct("Silence siren", "", ACT_NODE_SILENCE, n.id, "silencing...", "Stops a siren running on " + n.name + " now. " + info);
+    addAct("Live mode", "5m", ACT_NODE_LIVE, n.id, "starting live mode...", "Streams waveforms 4x a second for 5 minutes (dashboard scopes). " + info);
+    addAct("Calibrate", "", ACT_NODE_CAL, n.id, "calibrating...", "Re-learns the rest orientation and noise floor. Keep the node still. " + info);
+    return;
+  }
+  switch (pageId) {
+    case M_OVERVIEW:
+      addGo("Site", view.arm, GO_PAGE, M_ARMING, "Site is " + view.arm + ". SELECT to change arming.");
+      addGo("Nodes", String(view.online) + "/" + view.total, GO_PAGE, M_NODES, String(view.online) + " of " + view.total + " nodes online. SELECT for node details and controls.");
+      addGo("Alerts", String(view.activeCount), GO_PAGE, M_ALERTS, String(view.activeCount) + " open alert(s). SELECT to review and acknowledge.");
+      addGo("Mission", view.mission, GO_PAGE, M_MISSION, "Active mission: " + view.mission + ". SELECT to change it.");
+      addAct("Panic alarm", "hold", ACT_PANIC, "", "raising panic alarm...", "CRITICAL alarm, even when disarmed. Sounds every node unless the mission is silent.", 2000);
+      break;
+    case M_ALERTS:
+      if (!view.alertCount) { addInfo("No open alerts", "", "Nothing to acknowledge. The site is quiet."); break; }
+      for (int i = 0; i < view.alertCount && rowCount < 10; i++) {
+        AlertV& a = view.alerts[i];
+        addAct(a.title.length() ? a.title : a.kind, a.severity.substring(0, 4), ACT_ACK, a.id, "acknowledging...",
+               a.severity + (a.sim ? " (SIM) " : " ") + a.kind + " @" + a.node + ". " + a.text);
+      }
+      break;
+    case M_NODES:
+      if (!view.nodeCount) { addInfo("No nodes", "", "No sensor nodes reported yet."); break; }
+      for (int i = 0; i < view.nodeCount && rowCount < 10; i++) {
+        NodeV& n = view.nodes[i];
+        addGo(n.name + (n.sim ? "*" : ""), n.status == "ONLINE" ? "ON" : "OFF", GO_NODE, i,
+              n.status + ", " + n.level + (n.battery == -2 ? ", USB power" : n.battery >= 0 ? ", battery " + String(n.battery) + "%" : "") +
+              ", rssi " + String(n.rssi) + (n.sim ? ". Simulated." : ". SELECT for siren and controls."));
+      }
+      break;
+    case M_ARMING: {
+      const char* modes[3] = { "ARMED", "TEST", "DISARMED" };
+      const ActType acts[3] = { ACT_ARM, ACT_TEST, ACT_DISARM };
+      const char* hints[3] = { "Alerts sound sirens and notify.", "Walk test: alerts are flagged as test, no siren.", "Detections are only logged (tamper still alerts)." };
+      for (int i = 0; i < 3; i++) {
+        bool cur = view.arm == modes[i];
+        addAct(modes[i], cur ? "now" : "", acts[i], "", "changing arming...", String(hints[i]) + (cur ? " (current)" : " Hold SELECT 1 s."), cur ? 0 : 1000);
+        if (cur) rows[rowCount - 1].enabled = false;
+      }
+      break;
+    }
+    case M_MISSION:
+      for (int i = 0; i < 4; i++) {
+        bool cur = view.missionId == MISSION_IDS[i];
+        addAct(MISSION_NAMES[i], cur ? "now" : "", ACT_SET_MISSION, MISSION_IDS[i], "switching mission...", String(MISSION_DETAIL[i]) + (cur ? " (active)" : ""));
+        if (cur) rows[rowCount - 1].enabled = false;
+      }
+      break;
+    case M_SIREN:
+      addAct("Silence all", "", ACT_SILENCE, "", "silencing sirens...", String("Stops every node's siren. Mission is ") + (view.audible ? "audible." : "silent."));
+      addAct("Panic alarm", "hold", ACT_PANIC, "", "raising panic alarm...", "CRITICAL alarm, even when disarmed. Sounds every node unless the mission is silent.", 2000);
+      break;
+    default:   // System
+      addInfo("Link", view.link ? "up" : "down", String("Server link is ") + (view.link ? "up." : "down.") + " WiFi " + (WiFi.status() == WL_CONNECTED ? "connected." : "not connected."));
+      addInfo("Server", "", view.server.length() ? view.server : String(autoMode() ? "discovering..." : serverCfg));
+      addInfo("Panel IP", "", view.ip.length() ? view.ip : WiFi.localIP().toString());
+      addInfo("Firmware", BASE_FW_VERSION, String("Base station firmware ") + BASE_FW_VERSION + ", server up " + String(view.up) + " s.");
+      addInfo("Free heap", String(ESP.getFreeHeap() / 1024) + "k", "Free memory " + String(ESP.getFreeHeap()) + " bytes.");
+      addAct("Refresh now", "", ACT_REFRESH, "", "refreshing...", "Fetch fresh status from the server.");
+      break;
+  }
+}
+
+static void dirtyAll() { dirtyMenu = dirtyDetail = dirtyBanner = true; }
+static void openPage(int p) { screen = SCR_PAGE; pageId = p; rowSel = 0; rowTop = 0; buildRows(); dirtyAll(); }
+static void clampRows() {
+  if (rowSel >= rowCount) rowSel = rowCount ? rowCount - 1 : 0;
+  if (rowSel < rowTop) rowTop = rowSel;
+  if (rowSel > rowTop + 3) rowTop = rowSel - 3;
 }
 
 static void takeSnapshot() {
   int before = realAlerts(view);
   xSemaphoreTake(mtx, portMAX_DELAY); view = shared; xSemaphoreGive(mtx);
   if (realAlerts(view) > before) { setDim(false); lastInputMs = millis(); }
-  if (pageNode >= view.nodeCount) pageNode = view.nodeCount ? view.nodeCount - 1 : 0;
-  if (pageAlert >= view.alertCount) pageAlert = view.alertCount ? view.alertCount - 1 : 0;
+  if (screen != SCR_MENU) { buildRows(); clampRows(); }
+}
+
+static void activate(const Row& r) {
+  if (r.go == GO_PAGE) { openPage(r.target); return; }
+  if (r.go == GO_NODE) { screen = SCR_NODE; nodeIdx = r.target; rowSel = 0; rowTop = 0; buildRows(); dirtyAll(); return; }
+  if (!r.hasAct || !r.enabled) { actionMsg = r.right == "now" ? "already active" : "info only"; actionMsgAt = millis(); dirtyDetail = true; return; }
+  if (r.holdMs) startHold(r.holdMs, r.act, r.arg, String("Hold: ") + r.label, r.pending);
+  else queueAction(r.act, r.arg, r.pending);
+  dirtyDetail = true;
 }
 
 static void onButton(int b) {
-  if (b == BUP)   { menuSel = (menuSel + M_COUNT - 1) % M_COUNT; dirtyMenu = dirtyDetail = true; }
-  if (b == BDOWN) { menuSel = (menuSel + 1) % M_COUNT; dirtyMenu = dirtyDetail = true; }
-  if (b == BLEFT || b == BRIGHT) {
-    int d = b == BLEFT ? -1 : 1;
-    if (menuSel == M_NODES && view.nodeCount)   pageNode  = (pageNode + d + view.nodeCount) % view.nodeCount;
-    if (menuSel == M_ALERTS && view.alertCount) pageAlert = (pageAlert + d + view.alertCount) % view.alertCount;
-    dirtyDetail = true;
+  if (screen == SCR_MENU) {
+    if (b == BUP)   { menuSel = (menuSel + M_COUNT - 1) % M_COUNT; dirtyMenu = dirtyDetail = true; }
+    if (b == BDOWN) { menuSel = (menuSel + 1) % M_COUNT; dirtyMenu = dirtyDetail = true; }
+    if (b == BSEL || b == BRIGHT) openPage(menuSel);
+    if (menuSel < menuTop) menuTop = menuSel;
+    if (menuSel > menuTop + 3) menuTop = menuSel - 3;
+    return;
   }
-  if (b == BSEL) {
-    bool disarmed = view.arm.equalsIgnoreCase("DISARMED");
-    if (menuSel == M_ALERTS) {
-      if (view.alertCount) queueAction(ACT_ACK, view.alerts[pageAlert].id, "acknowledging...");
-      else { actionMsg = "no alerts to acknowledge"; actionMsgAt = millis(); }
-    } else if (menuSel == M_NODES) {
-      if (!view.nodeCount) { actionMsg = "no nodes"; actionMsgAt = millis(); }
-      else if (view.nodes[pageNode].sim) { actionMsg = "simulated node - no siren"; actionMsgAt = millis(); }
-      else queueAction(ACT_DETER, view.nodes[pageNode].id, "sending siren...");
-    }
-    else if (menuSel == M_ARMING)  startHold(1000, disarmed ? ACT_ARM : ACT_DISARM, disarmed ? "Hold to ARM" : "Hold to DISARM", "changing arming...");
-    else if (menuSel == M_OVERVIEW) startHold(2000, ACT_PANIC, "Hold for PANIC", "raising panic alarm...");
-    else if (menuSel == M_MISSION) queueAction(ACT_MISSION, "", "switching mission...");
-    else if (menuSel == M_SIREN)   queueAction(ACT_SILENCE, "", "silencing sirens...");
-    else                           queueAction(ACT_REFRESH, "", "refreshing...");
-    dirtyDetail = true;
+  buildRows();
+  if (b == BUP && rowCount)   { rowSel = (rowSel + rowCount - 1) % rowCount; clampRows(); dirtyMenu = dirtyDetail = true; }
+  if (b == BDOWN && rowCount) { rowSel = (rowSel + 1) % rowCount; clampRows(); dirtyMenu = dirtyDetail = true; }
+  if (b == BLEFT) {
+    if (screen == SCR_NODE) { screen = SCR_PAGE; pageId = M_NODES; rowSel = nodeIdx; rowTop = 0; buildRows(); clampRows(); }
+    else screen = SCR_MENU;
+    hold.active = false; dirtyAll();
   }
-  if (menuSel < menuTop) menuTop = menuSel;
-  if (menuSel > menuTop + 3) menuTop = menuSel - 3;
+  if ((b == BSEL || (b == BRIGHT && rowCount && rows[rowSel].go != GO_NONE)) && rowCount) activate(rows[rowSel]);
 }
 
 // ------------------------------------------------------------------ status pixel
@@ -298,94 +421,91 @@ static void drawWrapped(U8G2& g, const String& s, int x, int y, int maxW, int li
   if (line.length() && lines < maxLines) g.drawStr(x, y + lines * lineH, line.c_str());
 }
 
-static void renderMenu() {
-  oledMenu.clearBuffer();
-  oledMenu.setFont(u8g2_font_6x12_tf); oledMenu.drawStr(0, 10, "CHAUKIDAAR");
-  oledMenu.setFont(u8g2_font_5x8_tf);  oledMenu.drawStr(view.link ? 104 : 98, 9, view.link ? "LINK" : "NO-LINK");
-  oledMenu.drawHLine(0, 12, 128);
-  oledMenu.setFont(u8g2_font_6x12_tf);
+static String clipTo(U8G2& g, String s, int maxW) {
+  if (g.getStrWidth(s.c_str()) <= maxW) return s;
+  while (s.length() > 1 && g.getStrWidth((s + "..").c_str()) > maxW) s.remove(s.length() - 1);
+  return s + "..";
+}
+
+static void drawList(U8G2& g, const String& title, bool back, int count, int sel, int top,
+                     String (*label)(int), String (*right)(int)) {
+  g.clearBuffer();
+  g.setFont(u8g2_font_6x12_tf);
+  g.drawStr(0, 10, ((back ? "< " : "") + title).c_str());
+  g.setFont(u8g2_font_5x8_tf);
+  if (!back) g.drawStr(view.link ? 104 : 98, 9, view.link ? "LINK" : "NO-LINK");
+  g.drawHLine(0, 12, 128);
   for (int row = 0; row < 4; row++) {
-    int i = menuTop + row; if (i >= M_COUNT) break;
+    int i = top + row; if (i >= count) break;
     int y = 25 + row * 12;
-    if (i == menuSel) { oledMenu.drawBox(0, y - 10, 122, 12); oledMenu.setDrawColor(0); }
-    String label = String(MENU_LABELS[i]);
-    if (i == M_ALERTS && view.activeCount) label += " (" + String(view.activeCount) + ")";
-    oledMenu.drawStr(4, y, label.c_str());
-    oledMenu.setDrawColor(1);
+    if (i == sel) { g.drawBox(0, y - 10, 122, 12); g.setDrawColor(0); }
+    String r = right(i);
+    g.setFont(u8g2_font_5x8_tf); int rw = r.length() ? g.getStrWidth(r.c_str()) + 4 : 0;
+    if (r.length()) g.drawStr(120 - rw + 2, y - 1, r.c_str());
+    g.setFont(u8g2_font_6x12_tf);
+    g.drawStr(3, y, clipTo(g, label(i), 116 - rw).c_str());
+    g.setDrawColor(1);
   }
-  int barH = 48 * 4 / M_COUNT, barY = 14 + 48 * menuTop / M_COUNT;   // scroll indicator
-  oledMenu.drawFrame(124, 14, 4, 50); oledMenu.drawBox(125, barY, 2, barH);
-  oledMenu.sendBuffer();
+  if (count > 4) { int h = 48 * 4 / count; int y = 14 + (48 - h) * top / (count - 4); g.drawFrame(124, 14, 4, 50); g.drawBox(125, y, 2, h); }
+  g.sendBuffer();
+}
+static String menuLabel(int i) { String l = MENU_LABELS[i]; if (i == M_ALERTS && view.activeCount) l += " (" + String(view.activeCount) + ")"; return l; }
+static String menuRight(int i) { (void)i; return ">"; }
+static String rowLabel(int i) { return rows[i].label; }
+static String rowRight(int i) { return rows[i].right.length() ? rows[i].right : (rows[i].go != GO_NONE ? String(">") : String("")); }
+
+static void renderMenu() {
+  if (screen == SCR_MENU) { drawList(oledMenu, "CHAUKIDAAR", false, M_COUNT, menuSel, menuTop, menuLabel, menuRight); return; }
+  buildRows();
+  String title = screen == SCR_NODE && nodeIdx < view.nodeCount ? view.nodes[nodeIdx].name : String(MENU_LABELS[pageId]);
+  drawList(oledMenu, title, true, rowCount, rowSel, rowTop, rowLabel, rowRight);
+}
+
+static String menuPreview(int i) {
+  switch (i) {
+    case M_OVERVIEW: return "Site " + view.arm + ", " + String(view.online) + "/" + String(view.total) + " nodes online, " + String(view.activeCount) + " alert(s), mission " + view.mission + ".";
+    case M_ALERTS:   return view.activeCount ? String(view.activeCount) + " open alert(s): review and acknowledge." : String("No open alerts.");
+    case M_NODES:    return String(view.online) + "/" + String(view.total) + " nodes online: details, siren, live mode, calibrate.";
+    case M_ARMING:   return "Site is " + view.arm + ". Arm, test or disarm the site.";
+    case M_MISSION:  return "Mission " + view.mission + ". Switch the use case.";
+    case M_SIREN:    return String("Silence all sirens or raise a panic alarm. Mission is ") + (view.audible ? "audible." : "silent.");
+    default:         return String("Link ") + (view.link ? "up" : "down") + ", fw " + BASE_FW_VERSION + ", server and network details.";
+  }
 }
 
 static void renderDetail() {
   oledDetail.clearBuffer();
-  oledDetail.setFont(u8g2_font_6x12_tf); oledDetail.drawStr(0, 10, MENU_LABELS[menuSel]);
-  oledDetail.drawHLine(0, 13, 128);
-  oledDetail.setFont(u8g2_font_6x10_tf);
-  char b[64];
   if (hold.active) {   // hold-to-confirm progress bar
     uint32_t el = millis() - hold.start;
     int w = (int)(124UL * (el > hold.need ? hold.need : el) / hold.need);
-    oledDetail.setFont(u8g2_font_7x14B_tf); oledDetail.drawStr(0, 32, hold.label);
-    oledDetail.drawFrame(0, 40, 128, 12); oledDetail.drawBox(2, 42, w, 8);
-    oledDetail.setFont(u8g2_font_5x8_tf); oledDetail.drawStr(0, 62, "release to cancel");
+    oledDetail.setFont(u8g2_font_7x14B_tf); oledDetail.drawStr(0, 28, clipTo(oledDetail, hold.label, 128).c_str());
+    oledDetail.drawFrame(0, 36, 128, 12); oledDetail.drawBox(2, 38, w, 8);
+    oledDetail.setFont(u8g2_font_5x8_tf); oledDetail.drawStr(0, 62, "keep holding / release = cancel");
     oledDetail.sendBuffer();
     return;
   }
-  if (menuSel == M_OVERVIEW) {
-    snprintf(b, sizeof(b), "Site   %s", view.arm.c_str());                         oledDetail.drawStr(0, 25, b);
-    snprintf(b, sizeof(b), "Nodes  %d/%d online", view.online, view.total);         oledDetail.drawStr(0, 36, b);
-    snprintf(b, sizeof(b), "Alerts %d active", view.activeCount);                  oledDetail.drawStr(0, 47, b);
-    snprintf(b, sizeof(b), "Mission %s", view.mission.c_str());                    oledDetail.drawStr(0, 58, b);
-    oledDetail.setFont(u8g2_font_4x6_tf); oledDetail.drawStr(84, 64, "hold SEL:panic");
-  } else if (menuSel == M_ALERTS) {
-    if (!view.alertCount) oledDetail.drawStr(0, 34, "No active alerts");
-    else {
-      AlertV& a = view.alerts[pageAlert];
-      snprintf(b, sizeof(b), "%d/%d %s%s", pageAlert + 1, view.alertCount, a.severity.c_str(), a.sim ? " SIM" : ""); oledDetail.drawStr(0, 24, b);
-      oledDetail.drawStr(0, 34, a.title.c_str());
-      oledDetail.setFont(u8g2_font_5x8_tf);
-      drawWrapped(oledDetail, String("@") + a.node + " " + a.text, 0, 43, 128, 8, 2);
-      oledDetail.drawStr(0, 63, "SEL=ack  </>=page");
-    }
-  } else if (menuSel == M_NODES) {
-    if (!view.nodeCount) oledDetail.drawStr(0, 34, "No nodes");
-    else {
-      NodeV& n = view.nodes[pageNode];
-      snprintf(b, sizeof(b), "%d/%d %s%s", pageNode + 1, view.nodeCount, n.name.c_str(), n.sim ? " SIM" : ""); oledDetail.drawStr(0, 24, b);
-      snprintf(b, sizeof(b), "%s  %s", n.status.c_str(), n.level.c_str());           oledDetail.drawStr(0, 35, b);
-      if (n.battery >= 0) snprintf(b, sizeof(b), "bat %d%%  rssi %d", n.battery, n.rssi);
-      else if (n.battery == -2) snprintf(b, sizeof(b), "USB power  rssi %d", n.rssi);
-      else snprintf(b, sizeof(b), "no telemetry yet");
-      oledDetail.drawStr(0, 46, b);
-      oledDetail.setFont(u8g2_font_5x8_tf); oledDetail.drawStr(0, 63, n.sim ? "</>=page" : "SEL=siren 10s  </>=page");
-    }
-  } else if (menuSel == M_ARMING) {
-    oledDetail.setFont(u8g2_font_9x15B_tf); oledDetail.drawStr(0, 36, view.arm.c_str());
-    oledDetail.setFont(u8g2_font_5x8_tf);
-    oledDetail.drawStr(0, 63, view.arm.equalsIgnoreCase("DISARMED") ? "hold SEL 1s = arm site" : "hold SEL 1s = disarm site");
-  } else if (menuSel == M_MISSION) {
-    oledDetail.setFont(u8g2_font_7x14B_tf); oledDetail.drawStr(0, 34, view.mission.length() ? view.mission.c_str() : "-");
-    oledDetail.setFont(u8g2_font_5x8_tf);
-    oledDetail.drawStr(0, 48, view.missionId == "nuclear" ? "wildlife vs people" : view.missionId == "border" ? "tunnels, silent alarm" :
-                              view.missionId == "retail" ? "drilling, intruders" : "people & vehicles");
-    oledDetail.drawStr(0, 63, "SEL=next mission");
-  } else if (menuSel == M_SIREN) {
-    oledDetail.setFont(u8g2_font_7x14B_tf); oledDetail.drawStr(0, 32, view.audible ? "Audible mission" : "Silent mission");
-    oledDetail.setFont(u8g2_font_5x8_tf);
-    oledDetail.drawStr(0, 44, view.audible ? "nodes sound sirens on alarms" : "sirens off, alarms are silent");
-    oledDetail.drawStr(0, 63, "SEL = silence all sirens");
+  String head, body, foot;
+  if (screen == SCR_MENU) {
+    head = MENU_LABELS[menuSel]; body = menuPreview(menuSel); foot = "SEL/> open page";
   } else {
-    oledDetail.setFont(u8g2_font_5x8_tf);
-    oledDetail.drawStr(0, 24, ("srv " + (view.server.length() ? view.server : String(autoMode() ? "(discovering)" : serverCfg))).c_str());
-    oledDetail.drawStr(0, 34, ("ip  " + (view.ip.length() ? view.ip : WiFi.localIP().toString())).c_str());
-    snprintf(b, sizeof(b), "fw %s  up %lds", BASE_FW_VERSION, view.up);          oledDetail.drawStr(0, 44, b);
-    snprintf(b, sizeof(b), "link %s  heap %u", view.link ? "up" : "down", (unsigned)ESP.getFreeHeap()); oledDetail.drawStr(0, 54, b);
+    buildRows();
+    if (rowCount) {
+      const Row& r = rows[rowSel];
+      head = r.label; body = r.detail;
+      if (r.go != GO_NONE) foot = "SEL open   < back";
+      else if (r.hasAct && r.enabled) foot = r.holdMs ? String("hold SEL ") + String(r.holdMs / 1000) + "s   < back" : String("SEL do it   < back");
+      else foot = "< back";
+    } else { head = MENU_LABELS[pageId]; body = "Empty."; foot = "< back"; }
   }
+  oledDetail.setFont(u8g2_font_6x12_tf); oledDetail.drawStr(0, 10, clipTo(oledDetail, head, 128).c_str());
+  oledDetail.drawHLine(0, 13, 128);
+  oledDetail.setFont(u8g2_font_5x8_tf);
+  drawWrapped(oledDetail, body, 0, 22, 128, 9, 4);
+  oledDetail.drawHLine(0, 55, 128);
+  oledDetail.drawStr(0, 63, foot.c_str());
   if (actionMsg.length() && millis() - actionMsgAt < 3000) {   // action feedback strip
     oledDetail.setDrawColor(0); oledDetail.drawBox(0, 0, 128, 12); oledDetail.setDrawColor(1);
-    oledDetail.drawFrame(0, 0, 128, 12); oledDetail.setFont(u8g2_font_5x8_tf); oledDetail.drawStr(3, 9, actionMsg.c_str());
+    oledDetail.drawFrame(0, 0, 128, 12); oledDetail.drawStr(3, 9, actionMsg.c_str());
   }
   oledDetail.sendBuffer();
 }
@@ -489,16 +609,16 @@ void loop() {
     uint32_t el = millis() - hold.start;
     if (digitalRead(BTN_SELECT) == HIGH) {               // released
       hold.active = false;
-      if (el < hold.need) { actionMsg = hold.act == ACT_PANIC ? "hold SELECT 2 s for panic" : "hold SELECT 1 s to confirm"; actionMsgAt = millis(); }
+      if (el < hold.need) { actionMsg = String("hold SELECT ") + String(hold.need / 1000) + " s to confirm"; actionMsgAt = millis(); }
       dirtyDetail = true;
     } else if (el >= hold.need) {
-      hold.active = false; queueAction(hold.act, "", hold.pending); dirtyDetail = true;
+      hold.active = false; queueAction(hold.act, hold.arg, hold.pending); dirtyDetail = true;
     } else {
       static uint32_t lastHoldDraw = 0;
       if (millis() - lastHoldDraw > 90) { lastHoldDraw = millis(); dirtyDetail = true; }
     }
   }
-  if (actionDone) { actionDone = false; actionPending = false; actionMsg = actionResult; actionMsgAt = millis(); dirtyDetail = true; }
+  if (actionDone) { actionDone = false; actionPending = false; actionMsg = actionResult; actionMsgAt = millis(); dirtyMenu = dirtyDetail = true; }
   if (!dimmed && !hold.active && millis() - lastInputMs > DIM_AFTER_MS && realAlerts(view) == 0) setDim(true);
   if (dataDirty) { dataDirty = false; takeSnapshot(); dirtyMenu = dirtyDetail = dirtyBanner = true; }
   static uint32_t msgShown = 0;   // clear the feedback strip after it expires

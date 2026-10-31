@@ -5,7 +5,7 @@
 // `cfg server http://ip:8787` (or "auto"), `cfg show`, `reboot`.
 #pragma once
 
-#define BASE_FW_VERSION "2.1.0"
+#define BASE_FW_VERSION "2.2.0"
 
 // ---- network ----
 // Leave credentials blank here (don't commit secrets). Set them once over the serial
