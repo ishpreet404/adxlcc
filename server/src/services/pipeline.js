@@ -18,6 +18,7 @@ const zones = require('./zones');
 const activity = require('./activity');
 const notify = require('./notify');
 const timeseries = require('./timeseries');
+const profiles = require('./profiles');
 const { extract, spectrum } = require('../ml/features');
 const { VibrationClassifier } = require('../ml/classifier');
 
@@ -92,6 +93,8 @@ function ingest(raw, meta = {}) {
   fusion.serverMl = serverMl ? { label: serverMl.label, confidence: serverMl.confidence, explanation: serverMl.explanation, source: serverMl.source, raw: serverMl.raw, probs: serverMl.probs } : null;
   fusion.running = running;
   fusion.t = t.receivedAt;
+  const interp = profiles.interpret(node.id, t, fusion, ml, features);   // mission-specific reading
+  fusion.interpretation = interp;
 
   const position = (fusion.level !== 'CLEAR' || t.radar.presence) ? localization.estimate(node, t) : null;
   const zone = position ? zones.locate(position.x, position.y) : null;
@@ -132,8 +135,9 @@ function ingest(raw, meta = {}) {
   }
 
   // ---- alerts ---------------------------------------------------------------
-  const ctx = { telemetry: t, position, zone, track, ml, fusion };
+  const ctx = { telemetry: t, position, zone, track, ml, fusion, interpretation: interp };
   const alert = alerts.process(node, fusion, ctx);
+  if (interp && interp.raise && !alert) alerts.raiseProfile(node, interp, ctx);
   if (t.tamper && t.tamper.flag) alerts.raiseTamper(node, t.tamper, ctx);
   if (loiterS >= config.LOITER_SECONDS) {
     const st = loiterState.get(node.id);

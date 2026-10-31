@@ -36,6 +36,7 @@ const arming = require('./services/arming');
 const activity = require('./services/activity');
 const notify = require('./services/notify');
 const sponsors = require('./services/sponsors');
+const profiles = require('./services/profiles');
 const discovery = require('./services/discovery');
 
 const app = express();
@@ -43,6 +44,7 @@ const server = http.createServer(app);
 const simulator = new Simulator(pipeline);
 
 app.disable('x-powered-by');
+app.set('trust proxy', 'loopback');
 app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Node-Key', 'X-Transport'] }));
 app.use(express.json({ limit: '2mb' }));
 
@@ -58,12 +60,14 @@ app.use('/api/nodes', require('./routes/nodes'));
 app.use('/api/alerts', require('./routes/alerts'));
 app.get('/api/events', (req, res) => res.json({ ok: true, events: events.list(Number(req.query.limit) || 200) }));
 app.use('/api/system', require('./routes/system')(simulator));
-app.use('/api/ai', require('./routes/ai'));     // Gemini: narrate + text-to-SQL over TigerData
+app.use('/api/ai', require('./routes/ai'));     // Gemini: briefing feed, reports, text-to-SQL over TigerData
+app.use('/api/tiger', require('./routes/tiger'));   // TigerData analytics (hypertables, continuous aggregates)
+app.use('/api/basestation', require('./routes/basestation'));   // compact state for the OLED control panel
 app.use('/api', require('./routes/breach'));   // unchanged: POST /api/breach-check
 
 app.get('/api', (req, res) => res.json({
   name: 'Cyber Chaukidaar Central Server', version: '2.0.0',
-  endpoints: ['/api/ingest', '/api/nodes', '/api/nodes/:id/command', '/api/alerts', '/api/alerts/events', '/api/system/health', '/api/system/sim/*', '/api/system/record', '/api/ai/ask', '/api/ai/status', '/api/breach-check', 'ws://host/ws']
+  endpoints: ['/api/ingest', '/api/nodes', '/api/nodes/:id/command', '/api/alerts', '/api/alerts/events', '/api/system/health', '/api/system/sim/*', '/api/system/record', '/api/ai/ask', '/api/ai/status', '/api/ai/feed', '/api/ai/brief', '/api/tiger/stats', '/api/tiger/activity', '/api/tiger/alerts-timeline', '/api/system/profile', '/api/basestation', '/api/breach-check', 'ws://host/ws']
 }));
 
 // serve the built dashboard when present (single-process deployment on the Pi)
@@ -91,6 +95,7 @@ realtime.onHello = () => ({
   activity: activity.summary(),
   notify: notify.status(),
   thresholds: { alert: config.ALERT_THRESHOLD, critical: config.CRITICAL_THRESHOLD, loiterS: config.LOITER_SECONDS },
+  profile: profiles.get(), profiles: profiles.list(),
   serverTime: Date.now()
 });
 notify.onChange = (status) => realtime.broadcast('notify', status);

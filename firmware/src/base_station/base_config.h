@@ -5,7 +5,7 @@
 // `cfg server http://ip:8787` (or "auto"), `cfg show`, `reboot`.
 #pragma once
 
-#define BASE_FW_VERSION "1.0.0"
+#define BASE_FW_VERSION "2.0.0"
 
 // ---- network ----
 // Leave credentials blank here (don't commit secrets). Set them once over the serial
@@ -39,7 +39,7 @@
 #define STATUS_PIXEL_BRIGHT 40   // 0-255; WS2812 is bright, keep it low
 
 // ---- behaviour ----
-#define POLL_INTERVAL_MS   3000
+#define POLL_INTERVAL_MS   2000
 #define HTTP_TIMEOUT_MS    4000
 #define DISCOVERY_PORT     8788
 #define SERIAL_BAUD        115200

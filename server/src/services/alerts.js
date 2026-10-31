@@ -8,6 +8,7 @@ const store = require('./store');
 const realtime = require('./realtime');
 const events = require('./events');
 const arming = require('./arming');
+const profiles = require('./profiles');
 const notify = require('./notify');
 
 let seq = 0;
@@ -115,6 +116,10 @@ class Alerts {
     const id = node.id;
     let severity = fusion.severity;
     let candidate = fusion.isAlertCandidate;
+    const interp = ctx.interpretation || null;   // profile-specific reading of this detection
+    // A mission-specific class (WILDLIFE, SUBSURFACE, DRILLING...) gets its own alert kind, so the
+    // fusion path and the profile path merge into ONE alert per event instead of two.
+    const kind = (interp && interp.kind) || 'INTRUSION';
 
     // zone rules
     if (ctx.zone) {
@@ -137,11 +142,15 @@ class Alerts {
     const kin = tr ? { speed: tr.speed, headingDeg: tr.headingDeg, running: tr.running, eta: tr.eta, method: tr.method, trackId: tr.id } : null;
     const fields = {
       probability: fusion.probability, targetClass: fusion.targetClass, mlLabel: ctx.ml ? ctx.ml.label : null,
-      evidence: fusion.evidence.slice(0, 6), kinematics: kin
+      evidence: fusion.evidence.slice(0, 6), kinematics: kin, interpretation: interp
     };
     if (kin && kin.running) severity = severity === 'CRITICAL' ? 'CRITICAL' : 'HIGH';
+    // The mission has the final word on severity (e.g. wildlife in a restricted exclusion zone is
+    // MEDIUM/HIGH, never CRITICAL; a person there is always CRITICAL).
+    if (interp && interp.severity) severity = interp.severity;
+    if (interp && interp.label && interp.label !== 'HUMAN' && interp.label !== 'VEHICLE') fields.targetClass = interp.label;
 
-    const open = this._open(id, 'INTRUSION', now);
+    const open = this._open(id, kind, now);
     if (open) {
       fields.peakProbability = Math.max(open.peakProbability, fusion.probability);
       fields.severity = open.severity === 'CRITICAL' || severity === 'CRITICAL' ? 'CRITICAL' : severity;
@@ -149,8 +158,10 @@ class Alerts {
     }
     fields.peakProbability = fusion.probability;
     fields.severity = severity;
-    fields.message = `${fusion.targetClass} intrusion, p=${Math.round(fusion.probability * 100)}%${kin && kin.running ? ', RUNNING' : ''}${kin && kin.speed ? `, ${kin.speed} m/s` : ''}`;
-    return this._create(node, 'INTRUSION', fields, ctx, now);
+    fields.message = interp && interp.title
+      ? `${interp.title}${interp.detail ? ' — ' + interp.detail : ''}`
+      : `${fusion.targetClass} intrusion, p=${Math.round(fusion.probability * 100)}%${kin && kin.running ? ', RUNNING' : ''}${kin && kin.speed ? `, ${kin.speed} m/s` : ''}`;
+    return this._create(node, kind, fields, ctx, now);
   }
 
   /** Node body tilted / lifted / struck. Raised regardless of arming mode. */
@@ -158,9 +169,32 @@ class Alerts {
     const now = Date.now();
     const open = this._open(node.id, 'TAMPER', now);
     const fields = { severity: 'HIGH', probability: 1, peakProbability: 1, targetClass: 'TAMPER', tamper: info,
+      interpretation: { label: 'TAMPER', title: profiles.get().labels.TAMPER || 'Sensor tampering', detail: info.impact ? 'Node struck' : `Node tilted ${info.tilt}° from rest` },
       message: `Node ${info.impact ? 'struck' : 'tilted'} (${info.tilt}° from rest)` };
     if (open) return this._touch(open, fields, ctx, now);
     return this._create(node, 'TAMPER', fields, ctx, now);
+  }
+
+  /**
+   * Profile-specific detection the fusion engine would not alert on by itself
+   * (e.g. tunnelling is seismic-only; drilling has no radar target). interp from profiles.interpret().
+   */
+  raiseProfile(node, interp, ctx = {}) {
+    const now = Date.now();
+    if (arming.mode === 'DISARMED') return null;
+    const kind = interp.kind || interp.label;
+    const p = ctx.fusion ? Math.max(ctx.fusion.probability, 0.8) : 0.8;
+    const fields = { severity: interp.severity || 'HIGH', probability: Number(p.toFixed(3)), targetClass: interp.label,
+      mlLabel: ctx.ml ? ctx.ml.label : null, interpretation: interp,
+      message: `${interp.title}${interp.detail ? ' — ' + interp.detail : ''}` };
+    const open = this._open(node.id, kind, now);
+    if (open) {
+      fields.peakProbability = Math.max(open.peakProbability, fields.probability);
+      if (open.severity === 'CRITICAL') fields.severity = 'CRITICAL';
+      return this._touch(open, fields, ctx, now);
+    }
+    fields.peakProbability = fields.probability;
+    return this._create(node, kind, fields, ctx, now);
   }
 
   /** Radar target standing still near a node. */

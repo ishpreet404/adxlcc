@@ -13,6 +13,8 @@ const activity = require('../services/activity');
 const alerts = require('../services/alerts');
 const { classifier } = require('../services/pipeline');
 const discovery = require('../services/discovery');
+const profiles = require('../services/profiles');
+const panels = require('../services/panels');
 
 module.exports = (simulator) => {
   const router = express.Router();
@@ -25,7 +27,8 @@ module.exports = (simulator) => {
       dashboards: realtime.clientCount, nodes: registry.list().length,
       ml: { vibrationModel: classifier.loaded ? 'random_forest' : 'rules', trainedAt: classifier.meta.trainedAt || null, trees: classifier.trees.length },
       thresholds: { alert: config.ALERT_THRESHOLD, critical: config.CRITICAL_THRESHOLD, loiterS: config.LOITER_SECONDS, prearm: config.PREARM_ENABLED },
-      arming: arming.status(), notify: notify.status(), discovery: discovery.status(), simulator: simulator.status()
+      arming: arming.status(), notify: notify.status(), discovery: discovery.status(), simulator: simulator.status(),
+      mission: profiles.get().id, panels: panels.list()
     });
   });
 
@@ -57,6 +60,21 @@ module.exports = (simulator) => {
     realtime.broadcast('site', registry.snapshot().site);
     res.json({ ok: true });
   });
+
+  // ---- mission profile (use case) -----------------------------------------
+  router.get('/profile', (req, res) => res.json({ ok: true, profile: profiles.get(), profiles: profiles.list() }));
+  router.post('/profile', (req, res) => {
+    try {
+      const body = req.body || {};
+      let id = String(body.id || '');
+      if (body.next) {   // cycle (used by the base station's SELECT button)
+        const ids = profiles.list().map(p => p.id);
+        id = ids[(ids.indexOf(profiles.get().id) + 1) % ids.length];
+      }
+      res.json({ ok: true, profile: profiles.set(id, body.by || 'operator') });
+    } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
+  });
+  router.get('/panels', (req, res) => res.json({ ok: true, panels: panels.list() }));
 
   // ---- arming ------------------------------------------------------------
   router.get('/arming', (req, res) => res.json({ ok: true, arming: arming.status() }));

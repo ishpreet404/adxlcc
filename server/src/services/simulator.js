@@ -34,7 +34,11 @@ const SCENARIOS = {
   wind: { label: 'Wind gusts (environmental)', actors: [{ type: 'WIND' }] },
   loiter: { label: 'Someone stops and waits near a node', actors: [{ type: 'HUMAN', speed: 1.1, loop: false, path: [[2, 26], [8, 22], [12.5, 20.2]] }] },
   runner: { label: 'Intruder running across the site', actors: [{ type: 'HUMAN', speed: 3.4, cadence: 0.33, loop: true, path: [[38, 4], [30, 14], [16, 22], [4, 12], [8, 3]] }] },
-  mixed: { label: 'Walker + wind', actors: [{ type: 'HUMAN', speed: 1.1, loop: true, path: [[2, 4], [8, 14], [16, 22], [26, 26], [34, 18], [36, 6], [20, 2]] }, { type: 'WIND', gain: 0.5 }] }
+  mixed: { label: 'Walker + wind', actors: [{ type: 'HUMAN', speed: 1.1, loop: true, path: [[2, 4], [8, 14], [16, 22], [26, 26], [34, 18], [36, 6], [20, 2]] }, { type: 'WIND', gain: 0.5 }] },
+  // mission demos: each produces a physically different signature the profile classifiers look for
+  wildlife: { label: 'Animal wandering into the zone (nuclear)', actors: [{ type: 'ANIMAL', speed: 0.9, cadence: 0.27, jitter: 0.06, loop: true, path: [[6, 22], [9, 17], [13, 19], [11, 24], [20, 25], [27, 22], [31, 17], [33, 22], [20, 27]] }] },
+  tunnel: { label: 'Tunnel digging under the line (border)', actors: [{ type: 'DIGGER', static: true, hidden: true, cadence: 0.62, jitter: 0.04, anchor: { node: 0, d: 1.2, side: 0.4 } }] },
+  drilling: { label: 'Drill on the vault wall (jewelry store)', actors: [{ type: 'DRILL', static: true, hidden: true, anchor: { node: 1, d: 0.8, side: -0.3 } }] }
 };
 
 const gauss = () => { let u = 0, v = 0; while (!u) u = Math.random(); while (!v) v = Math.random(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v); };
@@ -121,12 +125,21 @@ class Simulator {
   }
 
   _makeActor(def) {
-    const a = { type: def.type, speed: def.speed || 1, cadence: def.cadence || 0.53, loop: def.loop !== false, path: def.path || [], idx: 0, x: 0, y: 0, moving: false, gain: def.gain || 1, done: false, stepTimes: [] };
+    const a = { type: def.type, speed: def.speed || 1, cadence: def.cadence || 0.53, jitter: def.jitter || 0.03, loop: def.loop !== false, path: def.path || [], idx: 0, x: 0, y: 0, moving: false, gain: def.gain || 1, done: false, stepTimes: [],
+      static: Boolean(def.static), hidden: Boolean(def.hidden) };   // hidden = underground / behind a wall: invisible to the radar
     if (a.path.length) { a.x = a.path[0][0]; a.y = a.path[0][1]; a.idx = 1; }
+    if (def.anchor) {   // place a stationary emitter relative to a simulated node
+      const pl = SIM_PLACEMENTS[def.anchor.node] || SIM_PLACEMENTS[0];
+      const n = registry.get(pl.id) || pl;
+      const h = (n.heading || 0) * Math.PI / 180;
+      a.x = n.x + Math.cos(h) * def.anchor.d - Math.sin(h) * (def.anchor.side || 0);
+      a.y = n.y + Math.sin(h) * def.anchor.d + Math.cos(h) * (def.anchor.side || 0);
+    }
     return a;
   }
 
   _moveActor(a, dt) {
+    if (a.static) { a.moving = true; return; }
     if (a.type === 'WIND' || !a.path.length || a.done) { a.moving = false; return; }
     const [tx, ty] = a.path[a.idx];
     const dx = tx - a.x, dy = ty - a.y;
@@ -175,13 +188,26 @@ class Simulator {
         const d = distFn(a);
         if (d > 12) continue;
         const delay = d / WAVE_SPEED;                        // seismic propagation delay
-        const amp0 = a.type === 'VEHICLE' ? 1.2 : 0.8;   // pulse amplitude (g) 1 m from a spiked probe
+        const amp0 = { VEHICLE: 1.2, HUMAN: 0.8, ANIMAL: 0.45, DIGGER: 0.9, DRILL: 0.22 }[a.type] || 0.8;   // amplitude (g) 1 m from a spiked probe
         const amp = amp0 * Math.pow(1 / d, ALPHA) * a.gain;
         if (a.type === 'HUMAN') {
           for (const ts of a.stepTimes) {
             const tau = t - ts - delay;
             if (tau >= 0 && tau < 0.45) v += amp * Math.exp(-tau * 14) * Math.sin(2 * Math.PI * 11 * tau);
           }
+        } else if (a.type === 'ANIMAL') {         // light, quick, irregular quadruped footfalls
+          for (const ts of a.stepTimes) {
+            const tau = t - ts - delay;
+            if (tau >= 0 && tau < 0.3) v += amp * Math.exp(-tau * 20) * Math.sin(2 * Math.PI * 14 * tau);
+          }
+        } else if (a.type === 'DIGGER') {         // sharp, low-frequency pick/shovel strikes from below
+          for (const ts of a.stepTimes) {
+            const tau = t - ts - delay;
+            if (tau >= 0 && tau < 0.25) v += amp * Math.exp(-tau * 30) * Math.sin(2 * Math.PI * 8 * tau);
+          }
+        } else if (a.type === 'DRILL') {          // continuous rotary drill, 6 s on / 2 s off
+          const tt = t - delay;
+          if ((tt % 8) < 6) v += amp * (Math.sin(2 * Math.PI * 38 * tt) + 0.35 * Math.sin(2 * Math.PI * 44 * tt + 0.7)) * (0.9 + 0.1 * Math.sin(2 * Math.PI * 3 * tt));
         } else if (a.type === 'VEHICLE') {
           const tt = t - delay;
           v += amp * (0.7 + 0.3 * Math.sin(2 * Math.PI * 0.8 * tt)) * (Math.sin(2 * Math.PI * 27 * tt) + 0.4 * Math.sin(2 * Math.PI * 54 * tt + 1));
@@ -197,11 +223,11 @@ class Simulator {
     this.t += dt;
     for (const a of this.actors) {
       this._moveActor(a, dt);
-      if (a.type === 'HUMAN' && a.moving) {
-        // schedule footsteps at ~1.9 Hz cadence
+      if ((a.type === 'HUMAN' || a.type === 'ANIMAL' || a.type === 'DIGGER') && a.moving) {
+        // schedule footsteps / strikes at the actor's cadence (human ~1.9 Hz, animal faster and irregular)
         const last = a.stepTimes.length ? a.stepTimes[a.stepTimes.length - 1] : this.t - 0.5;
-        let next = last + a.cadence + gauss() * 0.03;
-        while (next < this.t + dt) { a.stepTimes.push(next); next += a.cadence + gauss() * 0.03; }
+        let next = last + a.cadence + gauss() * a.jitter;
+        while (next < this.t + dt) { a.stepTimes.push(next); next += a.cadence + gauss() * a.jitter; }
         a.stepTimes = a.stepTimes.filter(ts => this.t - ts < 1.5);
       }
     }
@@ -223,7 +249,7 @@ class Simulator {
       const h = node.heading;
       let nearest = null;
       for (const a of this.actors) {
-        if (a.type === 'WIND') continue;
+        if (a.type === 'WIND' || a.hidden) continue;
         const d = Math.hypot(a.x - node.x, a.y - node.y);
         let bearing = Math.atan2(a.y - node.y, a.x - node.x) * 180 / Math.PI - h;
         bearing = ((bearing + 540) % 360) - 180;

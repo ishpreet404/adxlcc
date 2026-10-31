@@ -73,6 +73,8 @@ CREATE TABLE IF NOT EXISTS alerts (
 );
 SELECT create_hypertable('alerts', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS alerts_id ON alerts (alert_id);
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS label TEXT;
+ALTER TABLE alerts ADD COLUMN IF NOT EXISTS profile TEXT;
 `;
 
 // 1-second rollup the dashboard can read directly (continuous aggregate).
@@ -99,6 +101,15 @@ SELECT add_continuous_aggregate_policy('telemetry_1s',
   if_not_exists => TRUE);
 `;
 
+// Production lifecycle on the telemetry hypertable: compress chunks older than a day
+// (segment by node so per-node queries stay fast) and drop raw rows after 30 days.
+// The 1 s continuous aggregate keeps the long-term picture cheaply.
+const LIFECYCLE = [
+  `ALTER TABLE telemetry SET (timescaledb.compress, timescaledb.compress_segmentby = 'node_id', timescaledb.compress_orderby = 'time DESC')`,
+  `SELECT add_compression_policy('telemetry', INTERVAL '1 day', if_not_exists => TRUE)`,
+  `SELECT add_retention_policy('telemetry', INTERVAL '30 days', if_not_exists => TRUE)`
+];
+
 async function init() {
   if (!enabled) {
     console.log('[tiger] disabled (no DATABASE_URL / pg) — using file store only');
@@ -109,6 +120,7 @@ async function init() {
   try {
     await pool.query(SCHEMA);
     try { await pool.query(CAGG); await pool.query(CAGG_POLICY); } catch (e) { console.warn('[tiger] continuous aggregate skipped:', e.message); }
+    for (const sql of LIFECYCLE) { try { await pool.query(sql); } catch (e) { console.warn('[tiger] lifecycle policy skipped:', e.message.split('\n')[0]); } }
     ready = true;
     console.log('[tiger] connected, hypertables ready');
     return true;
@@ -168,19 +180,114 @@ function recordTelemetry(node, t, fusion, position) {
 function recordAlert(alert, extra = {}) {
   if (!ready) return Promise.resolve();
   const vals = [
-    new Date(alert.t || Date.now()), alert.id, alert.nodeId || null, alert.nodeName || null,
+    new Date(alert.createdAt || Date.now()), alert.id, alert.nodeId || null, alert.nodeName || null,
     alert.severity || null, alert.kind || null, alert.targetClass || null, alert.probability || null,
     alert.zone && alert.zone.name || null, alert.message || null,
-    extra.evidenceHash || null
+    extra.evidenceHash || null,
+    (alert.interpretation && alert.interpretation.label) || alert.targetClass || null,
+    extra.profile || null
   ];
   return pool.query(
     `INSERT INTO alerts
-     (time,alert_id,node_id,node_name,severity,kind,target_class,probability,zone,message,evidence_hash)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+     (time,alert_id,node_id,node_name,severity,kind,target_class,probability,zone,message,evidence_hash,label,profile)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
     vals
   ).catch(err => { lastError = err.message; });
 }
 
+
+// ---- analytics for the dashboard (trusted, server-authored SQL only) ------------------
+
+const num = (v) => (v === null || v === undefined ? null : Number(v));
+
+/** Headline numbers + which TimescaleDB features are active. Cheap: approximate_row_count. */
+async function stats() {
+  if (!ready) return { ok: true, enabled, ready: false, lastError };
+  const q = async (sql) => { try { return (await pool.query(sql)).rows; } catch (e) { return null; } };
+  const [rows, alertRows, ingest, size, chunks, cagg, span, jobs, compressed] = await Promise.all([
+    q(`SELECT approximate_row_count('telemetry')::bigint AS n`),
+    q(`SELECT count(*)::bigint AS n FROM alerts`),
+    q(`SELECT count(*)::int AS n FROM telemetry WHERE time > now() - interval '1 minute'`),
+    q(`SELECT (hypertable_size('telemetry') + hypertable_size('alerts'))::bigint AS bytes`),
+    q(`SELECT count(*)::int AS n FROM timescaledb_information.chunks WHERE hypertable_name IN ('telemetry','alerts')`),
+    q(`SELECT count(*)::bigint AS n FROM telemetry_1s`),
+    q(`SELECT min(time) AS oldest, max(time) AS newest FROM telemetry`),
+    q(`SELECT proc_name, hypertable_name, schedule_interval::text AS every FROM timescaledb_information.jobs WHERE hypertable_name IN ('telemetry','alerts','telemetry_1s') OR proc_name LIKE 'policy_refresh%'`),
+    q(`SELECT count(*) FILTER (WHERE is_compressed)::int AS n FROM timescaledb_information.chunks WHERE hypertable_name = 'telemetry'`)
+  ]);
+  // approximate_row_count is 0 until stats exist on a young table; fall back to an exact count then
+  let telemetryRows = rows ? num(rows[0].n) : null;
+  if (!telemetryRows) { const exact = await q(`SELECT count(*)::bigint AS n FROM telemetry`); telemetryRows = exact ? num(exact[0].n) : null; }
+  const jobNames = (jobs || []).map(j => j.proc_name);
+  return {
+    ok: true, enabled, ready: true,
+    telemetryRows,
+    alertRows: alertRows ? num(alertRows[0].n) : null,
+    ingestPerMin: ingest ? num(ingest[0].n) : null,
+    storageBytes: size ? num(size[0].bytes) : null,
+    chunks: chunks ? num(chunks[0].n) : null,
+    compressedChunks: compressed ? num(compressed[0].n) : null,
+    caggRows: cagg ? num(cagg[0].n) : null,
+    oldest: span && span[0].oldest, newest: span && span[0].newest,
+    hypertables: ['telemetry', 'alerts'],
+    continuousAggregate: 'telemetry_1s',
+    policies: {
+      continuousAggregateRefresh: jobNames.some(n => /refresh/.test(n)),
+      compression: jobNames.some(n => /compression|columnstore/.test(n)),
+      retention: jobNames.some(n => /retention/.test(n))
+    },
+    writes: writeCount, lastError
+  };
+}
+
+/** Per-minute activity per node, read from the 1 s continuous aggregate (not raw rows). */
+async function activity(minutes = 60) {
+  if (!ready) return [];
+  minutes = Math.max(5, Math.min(1440, Number(minutes) || 60));
+  const { rows } = await pool.query(
+    `SELECT time_bucket('1 minute', bucket) AS bucket, node_id,
+            max(max_p)::float AS max_p, avg((rms_a + rms_b) / 2)::float AS avg_rms, count(*)::int AS samples
+       FROM telemetry_1s
+      WHERE bucket > now() - make_interval(mins => $1)
+      GROUP BY 1, 2 ORDER BY 1`, [minutes]);
+  return rows;
+}
+
+/** Alerts per 10 minutes by severity. */
+async function alertsTimeline(hours = 6) {
+  if (!ready) return [];
+  hours = Math.max(1, Math.min(168, Number(hours) || 6));
+  const bucket = hours <= 6 ? '10 minutes' : hours <= 48 ? '1 hour' : '6 hours';
+  const { rows } = await pool.query(
+    `SELECT time_bucket($2::interval, time) AS bucket, coalesce(severity,'UNKNOWN') AS severity, count(*)::int AS count
+       FROM alerts WHERE time > now() - make_interval(hours => $1)
+      GROUP BY 1, 2 ORDER BY 1`, [hours, bucket]);
+  return rows;
+}
+
+/** Compact statistics for the Gemini situation report. */
+async function summary(minutes = 60) {
+  if (!ready) return null;
+  const iv = [Math.max(5, Math.min(1440, Number(minutes) || 60))];
+  const [byKind, bySev, byNode, perNode, latest] = await Promise.all([
+    pool.query(`SELECT coalesce(label, kind) AS k, count(*)::int AS n FROM alerts WHERE time > now() - make_interval(mins => $1) GROUP BY 1 ORDER BY 2 DESC`, iv),
+    pool.query(`SELECT severity AS k, count(*)::int AS n FROM alerts WHERE time > now() - make_interval(mins => $1) GROUP BY 1`, iv),
+    pool.query(`SELECT node_name AS k, count(*)::int AS n FROM alerts WHERE time > now() - make_interval(mins => $1) GROUP BY 1 ORDER BY 2 DESC LIMIT 8`, iv),
+    pool.query(`SELECT node_id, count(*)::int AS readings, round(max(probability)::numeric, 2)::float AS max_p,
+                       round(avg(battery_v)::numeric, 2)::float AS battery_v, round(avg(rssi)::numeric)::int AS rssi
+                  FROM telemetry WHERE time > now() - make_interval(mins => $1) GROUP BY 1 ORDER BY 1`, iv),
+    pool.query(`SELECT time, node_name, severity, coalesce(label, kind) AS what, message FROM alerts
+                 WHERE time > now() - make_interval(mins => $1) ORDER BY time DESC LIMIT 8`, iv)
+  ]);
+  const obj = (r) => Object.fromEntries(r.rows.map(x => [x.k, x.n]));
+  return {
+    source: 'tigerdata', minutes: iv[0],
+    alerts: byKind.rows.reduce((a, x) => a + x.n, 0),
+    byKind: obj(byKind), bySeverity: obj(bySev), byNode: obj(byNode),
+    telemetryRows: perNode.rows.reduce((a, x) => a + x.readings, 0),
+    nodes: perNode.rows, latest: latest.rows
+  };
+}
 
 /** Read-only query for the Gemini text-to-SQL box. Caller MUST pre-validate the SQL. */
 async function readQuery(sql, params = []) {
@@ -205,4 +312,4 @@ async function close() {
   if (poolRo && poolRo !== pool) await poolRo.end().catch(() => {});
 }
 
-module.exports = { init, recordTelemetry, recordAlert, readQuery, status, close, get ready() { return ready; } };
+module.exports = { init, recordTelemetry, recordAlert, readQuery, stats, activity, alertsTimeline, summary, status, close, get ready() { return ready; } };
