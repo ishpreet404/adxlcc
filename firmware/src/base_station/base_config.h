@@ -25,6 +25,18 @@
 #define OLED2_SCL 17   // screen 2 — NODES
 #define OLED2_SDA 16
 
+// ---- 5-way navigation buttons + status LED ----
+// Buttons are active-low to GND with the ESP32's internal pull-ups (no external resistors).
+// These GPIOs all support INPUT_PULLUP and avoid the OLED pins and the input-only 34-39 range.
+// Wire your buttons/LED to match, or change these to your actual pins.
+#define BTN_UP      32
+#define BTN_DOWN    33
+#define BTN_SELECT  27
+#define BTN_LEFT    25
+#define BTN_RIGHT   26
+#define STATUS_LED   4     // discrete LED to GND through a resistor (active-high)
+#define STATUS_LED_ACTIVE_HIGH 1
+
 // ---- behaviour ----
 #define POLL_INTERVAL_MS   3000
 #define HTTP_TIMEOUT_MS    4000
