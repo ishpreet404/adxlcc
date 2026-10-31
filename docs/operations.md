@@ -30,8 +30,11 @@ Browsers only allow installing a web app (and its offline service worker) over H
 1. `cd server && sh scripts/make-cert.sh` — creates a private CA and a certificate for the
    laptop's LAN address, and prints the three `HTTPS_*` lines to add to `server/.env`.
 2. Restart the server; it logs `[https] dashboard also on https://...:8443`.
-3. Send `server/certs/ca.crt` to the phone and trust it once (the script prints the steps for
-   iPhone and Android).
+3. On the phone (same WiFi), open `http://<laptop-ip>:8787/ca.crt` to download the CA certificate
+   (only the public certificate is served, never the key) and trust it once:
+   - iPhone: Settings → Profile Downloaded → Install, then Settings → General → About →
+     Certificate Trust Settings → enable *Cyber Chaukidaar Local CA*.
+   - Android: Settings → Security → Encryption & credentials → Install a certificate → CA certificate.
 4. Open `https://<laptop-ip>:8443` on the phone → **Install app** (Android) or
    **Share → Add to Home Screen** (iPhone).
 

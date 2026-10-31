@@ -50,7 +50,7 @@ function cookieFrom(header) {
 }
 const isPanel = (req) => Boolean(PANEL_KEY) && safeEqual(req.get('X-Panel-Key') || '', PANEL_KEY);
 
-const PUBLIC = [/^\/login$/, /^\/logout$/, /^\/healthz$/, /^\/api\/ingest/, /^\/api\/telemetry/, /^\/api\/basestation$/,
+const PUBLIC = [/^\/login$/, /^\/logout$/, /^\/healthz$/, /^\/ca\.crt$/, /^\/api\/ingest/, /^\/api\/telemetry/, /^\/api\/basestation$/,
   /^\/manifest\.webmanifest$/, /^\/sw\.js$/, /^\/icons\//, /^\/favicon/, /^\/apple-touch-icon/];
 
 /** Express middleware: require a session (or a valid panel key) for everything else. */

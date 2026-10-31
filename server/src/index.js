@@ -67,6 +67,12 @@ app.use((req, res, next) => {
 
 // liveness for monitors / orchestrators (no session needed, no internals)
 app.get('/healthz', (req, res) => res.json({ ok: true, uptimeS: Math.round(process.uptime()) }));
+// Public CA certificate (never the key) so a phone can trust the local HTTPS cert: open http://<ip>:8787/ca.crt
+app.get('/ca.crt', (req, res) => {
+  const ca = process.env.HTTPS_CERT && path.join(path.dirname(process.env.HTTPS_CERT), 'ca.crt');
+  if (!ca || !fs.existsSync(ca)) return res.status(404).send('HTTPS not configured');
+  res.type('application/x-x509-ca-cert').attachment('chaukidaar-ca.crt').sendFile(ca);
+});
 
 // optional operator login (ACCESS_PIN); sensor uplink and the panel summary stay reachable
 auth.routes(app, rateLimit);
