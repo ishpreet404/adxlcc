@@ -17,6 +17,8 @@ public:
     /** Relative bearing of the target: degrees from heading, positive = right (clockwise). */
     void setBearing(float thetaDeg, bool valid);
     void deterrent(uint32_t seconds);
+    void silence();                       // stop a running deterrent immediately
+    void setArmed(bool armed) { _armed = armed; }
     bool deterrentActive() const { return _deterUntil && (int32_t)(millis() - _deterUntil) < 0; }
     void chirp(uint16_t ms = 60, uint16_t hz = 2500);
     void calibratedFeedback();
@@ -25,6 +27,7 @@ public:
 
 private:
     Mode _mode = Mode::OFF;
+    bool _armed = true;
     float _theta = 0;
     bool _thetaValid = false;
     uint32_t _deterUntil = 0;

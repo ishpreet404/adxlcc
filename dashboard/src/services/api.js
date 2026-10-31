@@ -88,6 +88,10 @@ export const api = {
   recordStop: (nodeId) => post('/api/system/record/stop', { nodeId }),
   recordStatus: (nodeId) => request(`/api/system/record/${nodeId}`),
 
+  // Sirens: silence every node / panic (duress) alarm.
+  silence: () => post('/api/system/silence', { by: 'dashboard' }),
+  panic: () => post('/api/system/panic', { by: 'dashboard' }),
+
   // Deployment / mission profiles (use-case presets).
   profile: () => request('/api/system/profile'),
   setProfile: (id) => post('/api/system/profile', { id }),

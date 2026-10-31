@@ -199,6 +199,7 @@ class Registry {
         tamper: raw.tamper ? { tilt: r(raw.tamper.tilt, 1), flag: Boolean(raw.tamper.flag), impact: Boolean(raw.tamper.imp) } : null,
         noiseFloor: raw.nf !== undefined ? r(raw.nf, 5) : null,
         calibrated: Boolean(raw.cal),
+        offlineAlarms: Math.max(0, Math.min(65535, Math.round(num(raw.ofa)))),
         sys: { heap: num(raw.sys && raw.sys.heap), temp: r(raw.sys && raw.sys.tmp, 1) }
       };
     }

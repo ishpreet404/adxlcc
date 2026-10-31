@@ -76,6 +76,7 @@ String buildPacket(const PacketInput& in) {
     tamper["imp"] = in.impact;
     doc["nf"] = r4(in.noiseFloor);
     if (in.calibrated) doc["cal"] = true;
+    if (in.offlineAlarms) doc["ofa"] = in.offlineAlarms;
 
     JsonObject sys = doc["sys"].to<JsonObject>();
     sys["heap"] = ESP.getFreeHeap();
@@ -91,6 +92,9 @@ Downlink parseReply(const String& reply) {
     if (!reply.length()) return d;
     JsonDocument doc;
     if (deserializeJson(doc, reply)) return d;
+    // site state rides on every reply so the node can act sensibly when the server goes away
+    if (doc["arm"].is<const char*>()) d.armed = strcmp(doc["arm"], "DISARMED") == 0 ? 0 : 1;
+    if (!doc["aud"].isNull()) d.audible = (doc["aud"] | 1) ? 1 : 0;
     JsonObject cmd = doc["cmd"];
     if (cmd.isNull()) return d;
     if (cmd["mode"].is<const char*>()) {
@@ -102,5 +106,6 @@ Downlink parseReply(const String& reply) {
     d.sleepS = cmd["sleepS"] | 0;
     d.calibrate = cmd["calibrate"] | false;
     d.deterS = cmd["deter"] | 0;
+    d.silence = cmd["silence"] | false;
     return d;
 }

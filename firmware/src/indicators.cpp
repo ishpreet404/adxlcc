@@ -64,6 +64,13 @@ void Indicators::deterrent(uint32_t seconds) {
     if (PIN_DETERRENT >= 0) { pinMode(PIN_DETERRENT, OUTPUT); digitalWrite(PIN_DETERRENT, HIGH); }
 }
 
+void Indicators::silence() {
+    _deterUntil = 0; _buzzUntil = 0;
+    buzzer(false);
+    if (PIN_DETERRENT >= 0) digitalWrite(PIN_DETERRENT, LOW);
+    render();
+}
+
 void Indicators::calibratedFeedback() {
     chirp(60, 2000);
 #if PIN_LED_RING >= 0
@@ -111,8 +118,9 @@ void Indicators::render() {
     switch (_mode) {
         case Mode::OFF:
         case Mode::ECO:
-            // a single dim breath every ~4 s so you can see it's alive without draining the cell
-            if ((_frame % 80) < 6) ring.setPixelColor(0, ring.Color(0, 0, 25));
+            // a single dim breath every ~4 s so you can see it's alive without draining the cell:
+            // red = site armed, green = disarmed
+            if ((_frame % 80) < 6) ring.setPixelColor(0, _armed ? ring.Color(30, 0, 0) : ring.Color(0, 25, 0));
             break;
         case Mode::ACTIVE:
             ring.setPixelColor(0, ring.Color(0, 40, 60));

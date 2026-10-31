@@ -197,6 +197,22 @@ class Alerts {
     return this._create(node, kind, fields, ctx, now);
   }
 
+  /**
+   * Manual panic / duress alarm from an operator (dashboard, phone or the OLED panel).
+   * Always CRITICAL, raised regardless of arming. Sirens are handled by the caller.
+   */
+  raisePanic(by = 'operator') {
+    const now = Date.now();
+    const who = by === 'base-station' ? 'Control panel' : `Operator (${by})`;
+    const node = { id: 'PANEL', name: who, simulated: false };
+    const fields = { severity: 'CRITICAL', probability: 1, peakProbability: 1, targetClass: 'PANIC',
+      interpretation: { label: 'PANIC', title: 'Panic alarm', detail: `Raised manually from ${who.toLowerCase()}` },
+      message: `Panic alarm raised from ${who.toLowerCase()}` };
+    const open = this._open('PANEL', 'PANIC', now);
+    if (open) return this._touch(open, fields, {}, now);
+    return this._create(node, 'PANIC', fields, {}, now);
+  }
+
   /** Radar target standing still near a node. */
   raiseLoiter(node, seconds, ctx = {}) {
     const now = Date.now();

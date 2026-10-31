@@ -90,6 +90,16 @@ static uint16_t fs = FS_ACTIVE_HZ;
 static uint32_t seq = 0;
 static uint32_t lastTxMs = 0;
 static uint32_t lastHeartbeatMs = 0;
+// site state learned from server replies + resilience when the server is unreachable
+static bool siteArmed = true;            // fail-secure default until the server says otherwise
+static bool missionAudible = true;
+static uint8_t uplinkFails = 0;          // consecutive failed uplinks
+static uint16_t offlineAlarms = 0;       // local sirens not yet reported to the server
+static uint32_t lastOfflineAlarmMs = 0;
+static bool extPower = false;            // USB/mains powered (no cell on the battery divider)
+static uint32_t lastPowerCheckMs = 0;
+static const uint8_t OFFLINE_AFTER_FAILS = 3;
+static const uint32_t HEARTBEAT_EXT_S = 5;   // mains-powered nodes check in often, so commands land fast
 static uint32_t lastAnalysisMs = 0;
 static uint32_t lastActivityMs = 0;
 static uint32_t liveUntilMs = 0;
@@ -203,7 +213,7 @@ static void leaveActive() {
     active = false;
     state = State::IDLE;
     radar.power(false);
-    transport.disconnect();
+    if (!extPower) transport.disconnect();   // mains-powered nodes keep the link up
     configureSampling(FS_ECO_HZ, true);
     haveFeatures = false; haveMl = false;
     led(false);
@@ -214,7 +224,10 @@ static void leaveActive() {
 static void applyDownlink(const Downlink& d) {
     if (d.reboot) { Serial.println("[node] reboot requested"); delay(100); ESP.restart(); }
     if (d.calibrate) calibrateRest();
+    if (d.silence) { indicators.silence(); Serial.println("[node] siren silenced"); }
     if (d.deterS > 0) startDeterrent((uint32_t)(d.deterS > 120 ? 120 : d.deterS));
+    if (d.armed >= 0 && (d.armed == 1) != siteArmed) { siteArmed = d.armed == 1; indicators.setArmed(siteArmed); Serial.printf("[node] site %s\n", siteArmed ? "ARMED" : "DISARMED"); }
+    if (d.audible >= 0) missionAudible = d.audible == 1;
     if (d.hasMode) {
         if (d.live) {
             mode = Mode::LIVE;
@@ -263,14 +276,22 @@ static bool sendPacket(bool withWave) {
     in.calibrated = calibratedFlag;
     calibratedFlag = false;
 
+    in.offlineAlarms = offlineAlarms;
     String json = buildPacket(in);
 #if SERIAL_PACKET_ECHO
     Serial.print(">>"); Serial.println(json);
 #endif
     String reply;
     bool ok = transport.send(json, reply);
-    if (ok) applyDownlink(parseReply(reply));
-    else Serial.println("[node] uplink failed");
+    if (ok) {
+        if (uplinkFails >= OFFLINE_AFTER_FAILS) Serial.println("[node] server reachable again");
+        uplinkFails = 0;
+        offlineAlarms = 0;            // the server has them now
+        applyDownlink(parseReply(reply));
+    } else {
+        if (uplinkFails < 255) uplinkFails++;
+        Serial.printf("[node] uplink failed (%u in a row)\n", uplinkFails);
+    }
     return ok;
 }
 
@@ -338,6 +359,7 @@ static void handleConsole() {
     else if (line == "deter") startDeterrent(10);
     else if (line == "status") {
         Battery b = power.read();
+        Serial.printf("site=%s audible=%d power=%s uplinkFails=%u offlineAlarms=%u\n", siteArmed ? "ARMED" : "DISARMED", missionAudible, extPower ? "external" : "battery", uplinkFails, offlineAlarms);
         Serial.printf("mode=%s active=%d state=%s fs=%u bat=%.2fV(%u%%) A=%s B=%s radar=%s(%s %.2fm) link=%s rssi=%d tilt=%.1f heap=%u\n",
             mode == Mode::LIVE ? "LIVE" : "ECO", active, stateName(state), fs, b.voltage, b.percent,
             probeA.ok ? "ok" : "MISSING", probeB.ok ? "ok" : "MISSING",
@@ -411,6 +433,11 @@ void loop() {
     indicators.update();
     if (!baseValid && now - bootMs > 3000) calibrateRest();
     bool tamperNow = (int32_t)(now - tamperUntilMs) < 0;
+    if (now - lastPowerCheckMs > 10000 || !lastPowerCheckMs) {
+        lastPowerCheckMs = now;
+        bool ext = power.read().voltage < 2.5f;   // no Li-ion cell reads this low: it's USB/mains
+        if (ext != extPower) { extPower = ext; Serial.printf("[pwr] %s power\n", extPower ? "external" : "battery"); }
+    }
 
     if (!active) {
         // ---------------- ECO watch ----------------
@@ -420,15 +447,17 @@ void loop() {
             enterActive(tamperNow ? "TAMPER" : radar.outPinActive() || radar.reading().presence ? "radar" : "seismic trigger");
             return;
         }
-        if (now - lastHeartbeatMs >= (uint32_t)HEARTBEAT_ECO_S * 1000UL) {
+        uint32_t hbS = extPower ? HEARTBEAT_EXT_S : (uint32_t)HEARTBEAT_ECO_S;
+        if (now - lastHeartbeatMs >= hbS * 1000UL) {
             lastHeartbeatMs = now;
             led(true);
             if (transport.connect()) sendPacket(false);
-            transport.disconnect();
+            else if (uplinkFails < 255) uplinkFails++;
+            if (!extPower) transport.disconnect();
             led(false);
             if (active) return;
         }
-        if (indicators.deterrentActive()) { delay(20); return; }   // keep the strobe/buzzer animating
+        if (indicators.deterrentActive() || extPower) { delay(20); return; }   // animate the siren; mains power needn't sleep
         power.lightSleep(ECO_LIGHT_SLEEP_MS, radar.isPowered() && PIN_RADAR_OUT >= 0 ? PIN_RADAR_OUT : -1);
         return;
     }
@@ -444,6 +473,16 @@ void loop() {
         lastTxMs = now;
         sendPacket(live);
         lastHeartbeatMs = now;
+    }
+    // Edge autonomy: if the server has been unreachable for a few uplinks and this node itself
+    // sees an intrusion (or is being tampered with) while the site is armed, sound the siren
+    // locally. It is reported to the server ("ofa") as soon as the link comes back.
+    if (uplinkFails >= OFFLINE_AFTER_FAILS && siteArmed && missionAudible && (state == State::EVENT || tamperNow)
+        && !indicators.deterrentActive() && (now - lastOfflineAlarmMs > 60000 || !lastOfflineAlarmMs)) {
+        lastOfflineAlarmMs = now;
+        if (offlineAlarms < 65535) offlineAlarms++;
+        Serial.println("[node] server unreachable - sounding local alarm");
+        startDeterrent(10);
     }
     if (live && (int32_t)(now - liveUntilMs) >= 0) {
         mode = Mode::ECO;

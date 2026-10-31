@@ -25,14 +25,14 @@ router.get('/', (req, res) => {
   const p = profiles.get();
   res.json({
     arm: arming.mode,
-    mid: p.id, mis: p.short,
+    mid: p.id, mis: p.short, aud: p.deterrent === 'audible' ? 1 : 0,
     up: Math.round((Date.now() - startedAt) / 1000),
     on: nodes.filter(n => n.status === 'ONLINE').length, tot: nodes.length,
     ac: active.length,
     nodes: nodes.slice(0, 6).map(n => ({
       id: n.id, nm: clip(n.name, 12), st: n.status,
       lv: n.fusion ? n.fusion.level : '-',
-      bat: n.latest && n.latest.battery ? n.latest.battery.percent : -1,
+      bat: n.latest && n.latest.battery ? (n.latest.battery.external ? -2 : n.latest.battery.percent) : -1,   // -2 = USB/mains
       rssi: n.latest ? n.latest.rssi : 0, sim: n.simulated ? 1 : 0
     })),
     al: active.slice(0, 6).map(a => ({

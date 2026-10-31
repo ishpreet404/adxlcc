@@ -35,6 +35,7 @@ struct PacketInput {
     bool impact;          // shock seen recently
     float noiseFloor;     // probe A long-term RMS (g)
     bool calibrated;      // set on the first packet after a calibration
+    uint16_t offlineAlarms = 0;  // sirens sounded locally while the server was unreachable (reported once)
 };
 
 /** Build the v2 JSON uplink packet. */
@@ -47,6 +48,9 @@ struct Downlink {
     int sleepS = 0;
     bool calibrate = false;   // re-learn rest orientation + noise floor
     int deterS = 0;           // flash LED / drive PIN_DETERRENT for N seconds
+    bool silence = false;     // stop a running siren now
+    int armed = -1;           // site arming from every reply: 1 armed, 0 disarmed, -1 unknown
+    int audible = -1;         // active mission sounds sirens: 1 yes, 0 silent alarm, -1 unknown
 };
 /** Parse the server reply ({"ok":true,"cmd":{...}}). */
 Downlink parseReply(const String& reply);

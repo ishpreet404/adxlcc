@@ -19,6 +19,7 @@ const activity = require('./activity');
 const notify = require('./notify');
 const timeseries = require('./timeseries');
 const profiles = require('./profiles');
+const arming = require('./arming');
 const { extract, spectrum } = require('../ml/features');
 const { VibrationClassifier } = require('../ml/classifier');
 
@@ -159,8 +160,15 @@ function ingest(raw, meta = {}) {
   realtime.broadcast('node', pub);
   if (tracksChanged) realtime.broadcast('tracks', tracks.list());
 
+  if (t.offlineAlarms > 0 && !node.simulated) {
+    events.log('OFFLINE_ALARM', `${node.name} sounded its siren ${t.offlineAlarms} time${t.offlineAlarms === 1 ? '' : 's'} on its own while the server was unreachable`, { nodeId: node.id, severity: 'HIGH' });
+  }
+
   const cmd = commands.drain(node.id);
-  return { ok: true, t: Date.now(), alert: alert ? alert.id : null, level: fusion.level, cmd: cmd || undefined };
+  // site state rides on every reply: the node shows it on its ring and uses it to decide whether
+  // to sound a local siren if the server later becomes unreachable
+  return { ok: true, t: Date.now(), alert: alert ? alert.id : null, level: fusion.level, cmd: cmd || undefined,
+    arm: arming.mode, aud: profiles.get().deterrent === 'audible' ? 1 : 0 };
 }
 
 module.exports = { ingest, classifier };

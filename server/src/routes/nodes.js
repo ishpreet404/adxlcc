@@ -59,7 +59,11 @@ router.post('/:id/command', (req, res) => {
   if (body.sleepS) cmd.sleepS = Math.max(5, Math.min(3600, Number(body.sleepS)));
   if (body.calibrate) cmd.calibrate = true;
   if (body.deter) cmd.deter = Math.max(1, Math.min(120, Number(body.deter) || 10));
+  if (body.silence) { cmd.silence = true; delete cmd.deter; }
   if (!Object.keys(cmd).length) return res.status(400).json({ ok: false, error: 'no valid command' });
+  const pending = commands.peek(n.id);   // a newer siren/silence replaces a queued opposite one
+  if (pending && cmd.silence) delete pending.deter;
+  if (pending && cmd.deter) delete pending.silence;
   const queued = commands.push(n.id, cmd);
   events.log('COMMAND_QUEUED', `${n.name}: ${JSON.stringify(cmd)}`, { nodeId: n.id });
   res.json({ ok: true, queued, note: 'delivered on the node\'s next uplink' });

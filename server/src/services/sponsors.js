@@ -53,7 +53,7 @@ const RANK = { LOW: 0, MEDIUM: 1, HIGH: 2, CRITICAL: 3 };
 
 /** Mission response policy: sound the node's siren, or stay silent. */
 function respond(alert) {
-  if (alert.test || alert.simulated) return;
+  if (alert.test || alert.simulated || alert.kind === 'PANIC') return;   // panic sirens: see POST /api/system/panic
   const p = profiles.get();
   if (p.deterrent !== 'audible') {
     events.log('SILENT_ALARM', `${alert.nodeName}: silent alarm (${p.name}) - siren suppressed`, { nodeId: alert.nodeId, alertId: alert.id, severity: 'INFO' });

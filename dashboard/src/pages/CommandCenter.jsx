@@ -18,6 +18,7 @@ import EventLog from '../components/alerts/EventLog';
 import StatusStrip from '../components/layout/StatusStrip';
 import { BriefingFeed } from '../components/ai/BriefingFeed';
 import { MissionBanner } from '../components/mission/MissionCards';
+import { EmergencyBar } from '../components/layout/SirenControls';
 import { useMediaQuery } from '../lib/hooks';
 
 const LAYERS = [['beams', 'Beams'], ['zones', 'Zones'], ['heat', 'Heat'], ['trails', 'Trails'], ['predict', 'Predict'], ['labels', 'Labels']];
@@ -155,6 +156,7 @@ export const CommandCenter = () => {
   return (
     <div className="space-y-4">
       <MissionBanner />
+      <EmergencyBar />
       <StatusStrip />
       <ActiveAlerts />
       <LiveSensors node={node} />

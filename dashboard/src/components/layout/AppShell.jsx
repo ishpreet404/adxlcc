@@ -5,6 +5,7 @@ import { NAV, NAV_BY_ID, TAB_IDS, MORE_IDS } from './nav';
 import { LogoMark } from './Logo';
 import ArmingControl from './ArmingControl';
 import AudioAlarm from './AudioAlarm';
+import { SilenceButton, PanicButton } from './SirenControls';
 import { ConnectionStatus, MissionBadge, SimToggle, InstallButton } from './ShellWidgets';
 import { useNow } from '../../lib/hooks';
 import { alertHeadline, relTime } from '../../lib/format';
@@ -85,6 +86,7 @@ const AlertBanner = () => {
           <span className="text-red-200/80"> · {alertHeadline(a)} · {a.nodeName} · {relTime(a.createdAt)}</span>
         </div>
         <button type="button" onClick={() => setPage('alerts')} className="h-8 px-3 rounded-md text-xs font-medium text-red-100 hover:bg-white/10 flex-shrink-0">View</button>
+        <SilenceButton compact className="lg:hidden border-red-300/30 text-red-100 flex-shrink-0" />
         <button type="button" onClick={acknowledgeAll} className="hidden sm:inline-flex h-8 px-3 items-center gap-1.5 rounded-md text-xs font-medium bg-terminal-red/20 text-red-100 hover:bg-terminal-red/30 flex-shrink-0" title="Acknowledge all (A)">
           <CheckCheck className="w-3.5 h-3.5" aria-hidden="true" /> Acknowledge all
         </button>
@@ -127,6 +129,8 @@ const Header = () => {
             <Bell className="w-4 h-4" aria-hidden="true" /><span className="num">{active}</span><span className="hidden xl:inline">active</span>
           </button>
           <AudioAlarm />
+          <SilenceButton />
+          <PanicButton />
           <button type="button" onClick={() => { setPage('overview'); setWallMode(true); }} aria-label="Wall display mode (W)" title="Wall display mode (W)"
             className="w-8 h-8 inline-flex items-center justify-center rounded-lg border border-terminal-border text-terminal-muted hover:text-gray-100 hover:bg-white/5">
             <Monitor className="w-4 h-4" aria-hidden="true" />

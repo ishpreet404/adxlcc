@@ -1,5 +1,5 @@
 import React from 'react';
-import { Siren, Zap, Crosshair } from 'lucide-react';
+import { Siren, Zap, Crosshair, BellOff } from 'lucide-react';
 import useStore from '../../store/useStore';
 import { Button } from '../Button';
 import { Select } from '../Input';
@@ -13,6 +13,9 @@ export const NodeControls = ({ node, className = '' }) => {
     <div className={`grid grid-cols-1 sm:flex sm:flex-wrap gap-2 ${className}`} role="group" aria-label={`Controls for ${node.name}`}>
       <Button size="sm" variant="danger" onClick={() => command(node.id, { deter: 10 })} title="Sound the siren / deterrent on this node for 10 seconds">
         <Siren className="w-3.5 h-3.5" aria-hidden="true" />Sound alarm (10 s)
+      </Button>
+      <Button size="sm" variant="outline" onClick={() => command(node.id, { silence: true })} title="Stop this node's siren now">
+        <BellOff className="w-3.5 h-3.5" aria-hidden="true" />Silence
       </Button>
       <Button size="sm" variant={live ? 'selected' : 'outline'} onClick={() => command(node.id, { mode: 'LIVE', liveFor: 300 })} title="Stream waveforms at 4 Hz for 5 minutes">
         <Zap className="w-3.5 h-3.5" aria-hidden="true" />{live ? 'Live mode on · extend 5 min' : 'Live mode 5 min'}

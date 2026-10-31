@@ -15,6 +15,7 @@ const { classifier } = require('../services/pipeline');
 const discovery = require('../services/discovery');
 const profiles = require('../services/profiles');
 const panels = require('../services/panels');
+const commands = require('../services/commands');
 
 module.exports = (simulator) => {
   const router = express.Router();
@@ -75,6 +76,26 @@ module.exports = (simulator) => {
     } catch (err) { res.status(400).json({ ok: false, error: err.message }); }
   });
   router.get('/panels', (req, res) => res.json({ ok: true, panels: panels.list() }));
+
+  // ---- sirens: silence all / panic --------------------------------------------
+  const realNodeIds = () => registry.list().filter(n => !n.simulated).map(n => n.id);
+  router.post('/silence', (req, res) => {
+    const by = String((req.body && req.body.by) || 'operator').slice(0, 32);
+    const ids = realNodeIds();
+    for (const id of ids) { const q = commands.peek(id); if (q) delete q.deter; commands.push(id, { silence: true }); }
+    notify.sirenOff();
+    events.log('SILENCED', `Sirens silenced by ${by} on ${ids.length} node${ids.length === 1 ? '' : 's'}`, { severity: 'INFO' });
+    res.json({ ok: true, nodes: ids, note: "delivered on each node's next check-in" });
+  });
+  router.post('/panic', (req, res) => {
+    const by = String((req.body && req.body.by) || 'operator').slice(0, 32);
+    const alert = alerts.raisePanic(by);
+    const p = profiles.get();
+    const sirens = p.deterrent === 'audible' ? realNodeIds() : [];
+    for (const id of sirens) { const q = commands.peek(id); if (q) delete q.silence; commands.push(id, { deter: 30 }); }
+    events.log('PANIC', `Panic alarm by ${by}${sirens.length ? ` - sirens on ${sirens.join(', ')}` : ' - silent alarm (mission policy)'}`, { severity: 'CRITICAL', alertId: alert && alert.id });
+    res.json({ ok: true, alert: alert && alert.id, sirens });
+  });
 
   // ---- arming ------------------------------------------------------------
   router.get('/arming', (req, res) => res.json({ ok: true, arming: arming.status() }));
