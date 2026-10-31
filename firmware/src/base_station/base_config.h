@@ -29,13 +29,14 @@
 // Buttons are active-low to GND with the ESP32's internal pull-ups (no external resistors).
 // These GPIOs all support INPUT_PULLUP and avoid the OLED pins and the input-only 34-39 range.
 // Wire your buttons/LED to match, or change these to your actual pins.
-#define BTN_UP      32
-#define BTN_DOWN    33
-#define BTN_SELECT  27
+#define BTN_UP      26
+#define BTN_DOWN    32
+#define BTN_SELECT  33
 #define BTN_LEFT    25
-#define BTN_RIGHT   26
-#define STATUS_LED   4     // discrete LED to GND through a resistor (active-high)
-#define STATUS_LED_ACTIVE_HIGH 1
+#define BTN_RIGHT   27
+#define STATUS_PIXEL_PIN   14    // WS2812B addressable RGB status pixel
+#define STATUS_PIXEL_COUNT 1
+#define STATUS_PIXEL_BRIGHT 40   // 0-255; WS2812 is bright, keep it low
 
 // ---- behaviour ----
 #define POLL_INTERVAL_MS   3000

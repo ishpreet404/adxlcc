@@ -14,6 +14,7 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <U8g2lib.h>
+#include <Adafruit_NeoPixel.h>
 #include "base_config.h"
 
 U8G2_SSD1306_128X64_NONAME_F_SW_I2C oledMenu  (U8G2_R0, OLED0_SCL, OLED0_SDA, U8X8_PIN_NONE);
@@ -175,7 +176,8 @@ static void doSelect() {
 
 // ---- status LED ----
 enum LedMode { LED_OFF, LED_HEARTBEAT, LED_FAST, LED_SOLID };
-static void setLed(bool on) { digitalWrite(STATUS_LED, (STATUS_LED_ACTIVE_HIGH ? on : !on) ? HIGH : LOW); }
+static Adafruit_NeoPixel pixel(STATUS_PIXEL_COUNT, STATUS_PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+static void setPix(uint8_t r, uint8_t g, uint8_t b) { pixel.setPixelColor(0, pixel.Color(r, g, b)); pixel.show(); }
 static LedMode ledMode() {
   if (!linkUp) return LED_OFF;
   bool critical = false, active = alertCount > 0;
@@ -188,10 +190,10 @@ static LedMode ledMode() {
 static void updateLed() {
   uint32_t t = millis();
   switch (ledMode()) {
-    case LED_OFF:       setLed(false); break;
-    case LED_SOLID:     setLed(true);  break;
-    case LED_FAST:      setLed((t / 150) % 2); break;                 // ~3 Hz
-    case LED_HEARTBEAT: setLed((t % 2000) < 60); break;              // brief pulse each 2 s
+    case LED_OFF:       setPix(0, 0, linkUp ? 0 : 6); break;              // off (dim blue when no link)
+    case LED_SOLID:     setPix(90, 0, 0); break;                          // critical alert: solid red
+    case LED_FAST:      setPix((t / 150) % 2 ? 90 : 0, (t / 150) % 2 ? 25 : 0, 0); break; // active: blink orange
+    case LED_HEARTBEAT: { bool on = (t % 2000) < 70; setPix(0, on ? 45 : 0, 0); } break;  // armed & clear: green pulse
   }
 }
 
@@ -318,6 +320,32 @@ static void onButton(int b) {
   dirty = true;
 }
 
+// ---- guided button mapping (results shown on OLED0, no serial needed) ----
+static void runBtnScan() {
+  const int pins[] = { 0, 2, 5, 13, 14, 15, 23, 25, 26, 27, 32, 33 };
+  const int N = sizeof(pins) / sizeof(pins[0]);
+  for (int i = 0; i < N; i++) pinMode(pins[i], INPUT_PULLUP);
+  const char* names[5] = { "UP", "DOWN", "LEFT", "RIGHT", "SELECT" };
+  int mapped[5] = { -1, -1, -1, -1, -1 };
+  for (int b = 0; b < 5; b++) {
+    oledMenu.clearBuffer(); oledMenu.setFont(u8g2_font_6x12_tf); oledMenu.drawStr(0, 12, "BUTTON SETUP");
+    oledMenu.setFont(u8g2_font_9x15B_tf); oledMenu.drawStr(0, 40, (String("Press ") + names[b]).c_str());
+    oledMenu.setFont(u8g2_font_5x8_tf); oledMenu.drawStr(0, 60, "waiting..."); oledMenu.sendBuffer();
+    int got = -1; uint32_t t0 = millis();
+    while (millis() - t0 < 25000) { for (int i = 0; i < N; i++) if (digitalRead(pins[i]) == 0) { got = pins[i]; break; } if (got >= 0) break; delay(5); }
+    mapped[b] = got;
+    delay(60);
+    if (got >= 0) { uint32_t r = millis(); while (digitalRead(got) == 0 && millis() - r < 6000) delay(5); }  // wait release
+    oledMenu.clearBuffer(); oledMenu.setFont(u8g2_font_7x14B_tf);
+    oledMenu.drawStr(0, 36, got >= 0 ? (String(names[b]) + " = GPIO " + got).c_str() : (String(names[b]) + " = none").c_str());
+    oledMenu.sendBuffer(); Serial.printf("[btnscan] %s = GPIO %d\n", names[b], got); delay(800);
+  }
+  oledMenu.clearBuffer(); oledMenu.setFont(u8g2_font_5x8_tf); oledMenu.drawStr(0, 8, "BUTTON MAP - tell Claude:");
+  for (int b = 0; b < 5; b++) { char buf[28]; snprintf(buf, sizeof(buf), "%-7s GPIO %d", names[b], mapped[b]); oledMenu.drawStr(0, 22 + b * 9, buf); }
+  oledMenu.sendBuffer();
+  Serial.printf("[btnscan] MAP UP=%d DOWN=%d LEFT=%d RIGHT=%d SELECT=%d\n", mapped[0], mapped[1], mapped[2], mapped[3], mapped[4]);
+}
+
 // ---- serial console ----
 static void handleConsole() {
   static String line;
@@ -329,6 +357,7 @@ static void handleConsole() {
     else if (line.startsWith("cfg server ")) { serverCfg = line.substring(11); serverCfg.trim(); saveKV("url", serverCfg); serverUrl = serverCfg.equalsIgnoreCase("auto") ? String() : serverCfg; Serial.println("saved"); }
     else if (line == "cfg show" || line == "cfg") { Serial.printf("ssid:%s server:%s resolved:%s link:%s\n", wifiSsid.c_str(), serverCfg.c_str(), serverUrl.length() ? serverUrl.c_str() : "(discovering)", linkUp ? "up" : "down"); }
     else if (line == "scan") { int n = WiFi.scanNetworks(); for (int i = 0; i < n; i++) Serial.printf("  %2d) rssi %4d ch %2d %s\n", i, WiFi.RSSI(i), WiFi.channel(i), WiFi.SSID(i).c_str()); if (!n) Serial.println("  (none)"); WiFi.scanDelete(); }
+    else if (line == "btnscan") { runBtnScan(); }
     else if (line == "reboot") ESP.restart();
     line = "";
   }
@@ -340,7 +369,7 @@ void setup() {
   Serial.printf("\nCYBER CHAUKIDAAR base station fw %s\n", BASE_FW_VERSION);
   pinMode(BTN_UP, INPUT_PULLUP); pinMode(BTN_DOWN, INPUT_PULLUP); pinMode(BTN_SELECT, INPUT_PULLUP);
   pinMode(BTN_LEFT, INPUT_PULLUP); pinMode(BTN_RIGHT, INPUT_PULLUP);
-  pinMode(STATUS_LED, OUTPUT); setLed(false);
+  pixel.begin(); pixel.setBrightness(STATUS_PIXEL_BRIGHT); setPix(0, 0, 10); // blue during boot
   oledMenu.begin(); oledDetail.begin(); oledBanner.begin();
   loadSettings();
   splash("connecting WiFi...");
