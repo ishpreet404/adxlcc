@@ -66,7 +66,17 @@ export const api = {
 
   record: (nodeId, label, seconds) => post('/api/system/record', { nodeId, label, seconds }),
   recordStop: (nodeId) => post('/api/system/record/stop', { nodeId }),
-  recordStatus: (nodeId) => request(`/api/system/record/${nodeId}`)
+  recordStatus: (nodeId) => request(`/api/system/record/${nodeId}`),
+
+  // Gemini operator endpoints. ask() returns the raw result (ok:false carries an error
+  // message to display, rather than throwing like request()).
+  aiStatus: () => request('/api/ai/status'),
+  ask: async (question) => {
+    const res = await fetch(`${BASE_URL}/api/ai/ask`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question })
+    });
+    try { return await res.json(); } catch { return { ok: false, error: `HTTP ${res.status}` }; }
+  }
 };
 
 export default api;

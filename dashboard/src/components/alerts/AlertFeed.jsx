@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, Check, X, ShieldCheck, ShieldAlert, Timer, Footprints, Car } from 'lucide-react';
+import { AlertTriangle, Check, X, ShieldCheck, ShieldAlert, Timer, Footprints, Car, Sparkles } from 'lucide-react';
 import useStore from '../../store/useStore';
 import { clock, severityBadge, compass, kindHex } from '../../lib/format';
 import { StatusBadge } from '../StatusBadge';
@@ -59,9 +59,15 @@ export const AlertCard = ({ alert, detailed = false, onReplay }) => {
               {alert.evidence.slice(0, 4).map(e => <li key={e.key}>{e.label}: {e.value} ({e.contribution > 0 ? '+' : ''}{e.contribution})</li>)}
             </ul>
           )}
+          {alert.narrative && (
+            <div className="mt-1 text-terminal-cyan flex gap-1 items-start">
+              <Sparkles className="w-3 h-3 flex-shrink-0 mt-0.5" /><span className="italic">{alert.narrative}</span>
+            </div>
+          )}
           <div className="text-terminal-muted mt-0.5">
             status <span className={alert.status === 'ACTIVE' ? 'text-terminal-red font-bold' : alert.status === 'ACKNOWLEDGED' ? 'text-terminal-amber' : 'text-terminal-green'}>{alert.status}</span>
             {alert.ackBy ? ` by ${alert.ackBy}` : ''}{alert.autoResolved ? ' (auto)' : ''}
+            {alert.evidenceHash && <span title="SHA-256 of the sensor evidence (tamper-evident)"> · evidence {alert.evidenceHash.slice(0, 10)}…</span>}
           </div>
         </div>
         <KindIcon alert={alert} className={`w-5 h-5 flex-shrink-0 ${alert.status === 'ACTIVE' ? 'animate-pulse' : 'text-terminal-muted'}`} />

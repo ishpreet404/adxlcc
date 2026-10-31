@@ -15,6 +15,8 @@ import SnapshotTiles from '../components/SnapshotTiles';
 import AlertFeed, { AlertCard } from '../components/alerts/AlertFeed';
 import EventLog from '../components/alerts/EventLog';
 import StatusStrip from '../components/layout/StatusStrip';
+import AskPanel from '../components/ai/AskPanel';
+import { Sparkles } from 'lucide-react';
 
 const Toggle = ({ on, onClick, iconOn: IconOn, iconOff: IconOff, label, title }) => (
   <button onClick={onClick} title={title} className={`flex items-center gap-1 px-2 py-0.5 text-[10px] border ${on ? 'border-terminal-green text-terminal-green' : 'border-terminal-border text-terminal-muted'}`}>
@@ -127,6 +129,7 @@ export const CommandCenter = () => {
         </div>
 
         <div className="xl:col-span-3 space-y-3">
+          <Card className="!h-auto" title={<span className="flex items-center gap-1.5"><Sparkles className="w-3.5 h-3.5" /> ASK (GEMINI + TIGERDATA)</span>}><AskPanel /></Card>
           <Card className="!h-auto" title="TELEMETRY"><TelemetryColumn node={node} /></Card>
           <Card className="!h-auto" title="EVENT LOG"><EventLog limit={40} height={260} /></Card>
         </div>
