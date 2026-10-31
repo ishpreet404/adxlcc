@@ -69,9 +69,7 @@ CREATE TABLE IF NOT EXISTS alerts (
   probability DOUBLE PRECISION,
   zone        TEXT,
   message     TEXT,
-  evidence_hash TEXT,
-  chain_sig   TEXT,
-  chain_slot  BIGINT
+  evidence_hash TEXT
 );
 SELECT create_hypertable('alerts', 'time', if_not_exists => TRUE);
 CREATE INDEX IF NOT EXISTS alerts_id ON alerts (alert_id);
@@ -173,22 +171,16 @@ function recordAlert(alert, extra = {}) {
     new Date(alert.t || Date.now()), alert.id, alert.nodeId || null, alert.nodeName || null,
     alert.severity || null, alert.kind || null, alert.targetClass || null, alert.probability || null,
     alert.zone && alert.zone.name || null, alert.message || null,
-    extra.evidenceHash || null, extra.chainSig || null, extra.chainSlot || null
+    extra.evidenceHash || null
   ];
   return pool.query(
     `INSERT INTO alerts
-     (time,alert_id,node_id,node_name,severity,kind,target_class,probability,zone,message,evidence_hash,chain_sig,chain_slot)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+     (time,alert_id,node_id,node_name,severity,kind,target_class,probability,zone,message,evidence_hash)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     vals
   ).catch(err => { lastError = err.message; });
 }
 
-/** Attach an on-chain signature to an already-stored alert (Solana anchor callback). */
-function attachChainProof(alertId, chainSig, chainSlot) {
-  if (!ready) return Promise.resolve();
-  return pool.query('UPDATE alerts SET chain_sig=$2, chain_slot=$3 WHERE alert_id=$1', [alertId, chainSig, chainSlot || null])
-    .catch(err => { lastError = err.message; });
-}
 
 /** Read-only query for the Gemini text-to-SQL box. Caller MUST pre-validate the SQL. */
 async function readQuery(sql, params = []) {
@@ -213,4 +205,4 @@ async function close() {
   if (poolRo && poolRo !== pool) await poolRo.end().catch(() => {});
 }
 
-module.exports = { init, recordTelemetry, recordAlert, attachChainProof, readQuery, status, close, get ready() { return ready; } };
+module.exports = { init, recordTelemetry, recordAlert, readQuery, status, close, get ready() { return ready; } };

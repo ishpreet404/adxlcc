@@ -33,7 +33,7 @@ Tables (TimescaleDB / PostgreSQL):
             rms_a float, rms_b float, radar_dist float, radar_energy float, ml_label text, ml_conf float,
             fusion_level text, probability float, loiter_s int, battery_v float, rssi int, pos_x float, pos_y float)
   alerts(time timestamptz, alert_id text, node_id text, node_name text, severity text, kind text,
-         target_class text, probability float, zone text, message text, evidence_hash text, chain_sig text)
+         target_class text, probability float, zone text, message text, evidence_hash text)
   telemetry_1s(bucket timestamptz, node_id text, rms_a float, rms_b float, max_p float, radar_dist float)
 fusion_level is one of CLEAR, SUSPECT, INTRUSION. ml_label is one of NORMAL, HUMAN, VEHICLE, ENVIRONMENT.
 Use time_bucket() and now() - interval '...' for time ranges.`;

@@ -6,7 +6,6 @@
  */
 const express = require('express');
 const reason = require('../services/reason');
-const anchorchain = require('../services/anchorchain');
 const timeseries = require('../services/timeseries');
 
 const router = express.Router();
@@ -26,8 +25,7 @@ router.get('/status', async (req, res) => {
   res.json({
     ok: true,
     tiger: timeseries.status(),
-    gemini: reason.status(),
-    solana: await anchorchain.status()
+    gemini: reason.status()
   });
 });
 

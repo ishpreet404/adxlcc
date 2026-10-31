@@ -43,7 +43,7 @@ class Alerts {
     for (const fn of this._created) { try { fn(alert, ctx); } catch (e) { console.warn('[alert] listener failed:', e.message); } }
   }
 
-  /** Merge async enrichment (Gemini narrative, Solana proof) into a live alert and rebroadcast. */
+  /** Merge async enrichment (Gemini narrative, evidence hash) into a live alert and rebroadcast. */
   enrich(id, patch) {
     const a = this.alerts.get(id);
     if (!a) return null;
