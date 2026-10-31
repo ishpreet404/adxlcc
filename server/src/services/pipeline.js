@@ -17,6 +17,7 @@ const commands = require('./commands');
 const zones = require('./zones');
 const activity = require('./activity');
 const notify = require('./notify');
+const timeseries = require('./timeseries');
 const { extract, spectrum } = require('../ml/features');
 const { VibrationClassifier } = require('../ml/classifier');
 
@@ -131,6 +132,7 @@ function ingest(raw, meta = {}) {
     radar: t.radar.presence ? t.radar.distance : null, energy: t.radar.energy,
     p: fusion.probability, v: t.battery.voltage, rssi: t.rssi
   });
+  timeseries.recordTelemetry(node, t, fusion, position);
 
   // ---- broadcast --------------------------------------------------------
   const pub = registry.toPublic(node);

@@ -19,6 +19,7 @@ class Alerts {
     this.alerts = new Map();
     this.hits = new Map();
     this.lastDisarmedLog = new Map();
+    this._created = [];   // listeners fired once when a NEW alert is created (any kind)
     for (const a of store.readLog('alerts.ndjson', 500)) if (a && a.id) this.alerts.set(a.id, a);
     for (const a of this.alerts.values()) if (a.status === 'ACTIVE' || a.status === 'ACKNOWLEDGED') a.status = 'RESOLVED';
   }
@@ -35,6 +36,22 @@ class Alerts {
   get(id) { return this.alerts.get(id) || null; }
 
   _persist(a) { store.appendLog('alerts.ndjson', { ...a, frames: undefined }); }
+
+  /** Subscribe to brand-new alerts (not touches). fn(alert, ctx). */
+  onCreated(fn) { if (typeof fn === 'function') this._created.push(fn); }
+  _emitCreated(alert, ctx) {
+    for (const fn of this._created) { try { fn(alert, ctx); } catch (e) { console.warn('[alert] listener failed:', e.message); } }
+  }
+
+  /** Merge async enrichment (Gemini narrative, Solana proof) into a live alert and rebroadcast. */
+  enrich(id, patch) {
+    const a = this.alerts.get(id);
+    if (!a) return null;
+    Object.assign(a, patch);
+    this._persist(a);
+    realtime.broadcast('alert', { action: 'updated', alert: { ...a, frames: undefined } });
+    return a;
+  }
 
   _open(nodeId, kind, now) {
     for (const a of this.alerts.values()) {
@@ -73,6 +90,7 @@ class Alerts {
       notify.send({ kind, title: `${alert.severity} ${kind}${alert.targetClass !== 'UNKNOWN' ? ' · ' + alert.targetClass : ''} — ${node.name}`,
         message: `${fields.message || ''}${where}${zone}\n${new Date(now).toLocaleString()}`, data: { alertId: alert.id, nodeId: node.id, position: ctx.position, zone: alert.zone } });
     }
+    this._emitCreated(alert, ctx);
     return alert;
   }
 

@@ -25,7 +25,7 @@ cfg show
 reboot
 ```
 
-Other console commands: `live` (stream for 5 min), `eco`, `status`, `help`. Settings live in NVS and survive re-flashing.
+Other console commands: `live` (stream for 5 min), `eco`, `status`, `help`. Settings set with `cfg` live in NVS and survive re-flashing; anything you never set with `cfg` follows the `DEFAULT_*` values in `config.h` on every flash. `cfg show` marks each value as `[config.h default]` or `[saved by cfg]` — if the server URL shows as saved but you edited `config.h`, run `cfg server http://<pi-ip>:8787` (or `cfg clear`).
 
 ## Runtime behaviour
 

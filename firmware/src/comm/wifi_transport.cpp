@@ -65,14 +65,14 @@ bool WiFiTransport::send(const String& json, String& reply) {
     http.setConnectTimeout(3000);
     http.setTimeout(4000);
     http.setReuse(true);
-    if (!http.begin(url)) return false;
+    if (!http.begin(url)) { Serial.printf("[wifi] bad server url: %s\n", url.c_str()); return false; }
     http.addHeader("Content-Type", "application/json");
     if (settings.nodeKey.length()) http.addHeader("X-Node-Key", settings.nodeKey);
     int code = http.POST((uint8_t*)json.c_str(), json.length());
     bool ok = code >= 200 && code < 300;
     if (ok) reply = http.getString();
-    else if (code < 0) Serial.printf("[wifi] POST failed: %s\n", http.errorToString(code).c_str());
-    else Serial.printf("[wifi] server replied %d\n", code);
+    else if (code < 0) Serial.printf("[wifi] POST %s failed: %s (ip %s)\n", url.c_str(), http.errorToString(code).c_str(), WiFi.localIP().toString().c_str());
+    else Serial.printf("[wifi] %s replied %d\n", url.c_str(), code);
     http.end();
     return ok;
 }

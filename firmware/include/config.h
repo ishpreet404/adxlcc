@@ -1,7 +1,8 @@
 // Cyber Chaukidaar sentry node — compile-time configuration.
 // Anything marked [NVS] can be overridden at runtime over the serial console
 // (`cfg id N1`, `cfg wifi <ssid> <pass>`, `cfg server http://192.168.1.50:8787`, `cfg show`).
-// NOTE: values saved over the console take precedence over the defaults below; `cfg clear` resets.
+// NOTE: a value saved over the console takes precedence over its default below; `cfg show` tells you
+// which is in effect. Defaults never overridden by `cfg` follow this file on every flash. `cfg clear` resets.
 #pragma once
 
 #define FW_VERSION "2.1.0"
@@ -10,7 +11,7 @@
 #define DEFAULT_NODE_ID        "N1"                       // [NVS]
 #define DEFAULT_WIFI_SSID      "Excitel_Demon"            // [NVS]
 #define DEFAULT_WIFI_PASS      "Vansh2309%"               // [NVS]
-#define DEFAULT_SERVER_URL     "http://192.168.1.100:8787" // [NVS]  <-- put the Raspberry Pi's IP here (hostname -I)
+#define DEFAULT_SERVER_URL     "http://10.110.87.26:8787" // [NVS]  <-- put the Raspberry Pi's IP here (hostname -I)
 #define DEFAULT_NODE_KEY       ""                         // [NVS] must match NODE_API_KEY on the server (optional)
 
 // ================================================================ BOARD: ESP32-S3 build (-DBOARD_S3)
