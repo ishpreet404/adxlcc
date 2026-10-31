@@ -7,14 +7,19 @@ const { WebSocketServer } = require('ws');
 
 class Realtime {
   constructor() {
-    this.wss = null;
+    this.servers = [];
     this.clients = new Set();
-    this.onHello = null; // () => snapshot object
+    this.onHello = null;      // () => snapshot object
+    this.verify = null;       // (req) => boolean, e.g. session check
+    this.sweep = null;
   }
 
-  init(server) {
-    this.wss = new WebSocketServer({ server, path: '/ws' });
-    this.wss.on('connection', (ws, req) => {
+  /** Attach to an http(s) server. Can be called for several servers (HTTP + HTTPS). */
+  init(server, { verify } = {}) {
+    if (verify) this.verify = verify;
+    const wss = new WebSocketServer({ server, path: '/ws', verifyClient: (info, cb) => cb(!this.verify || this.verify(info.req), 401, 'login required') });
+    this.servers.push(wss);
+    wss.on('connection', (ws, req) => {
       this.clients.add(ws);
       ws.isAlive = true;
       ws.on('pong', () => { ws.isAlive = true; });
@@ -29,8 +34,9 @@ class Realtime {
       console.log(`[ws] dashboard connected from ${req.socket.remoteAddress} (${this.clients.size} total)`);
       if (this.onHello) this.send(ws, 'hello', this.onHello());
     });
-    // liveness sweep
-    setInterval(() => {
+    if (this.sweep) return;
+    // liveness sweep (once, across all servers)
+    this.sweep = setInterval(() => {
       for (const ws of this.clients) {
         if (ws.isAlive === false) { ws.terminate(); this.clients.delete(ws); continue; }
         ws.isAlive = false;

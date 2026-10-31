@@ -16,3 +16,7 @@ tools/package-lock.json
 
 # Unrelated course notes (kept locally, not part of the project)
 web-mining-*
+
+# local HTTPS certificates (server/scripts/make-cert.sh)
+server/certs/
+server/data/session.key

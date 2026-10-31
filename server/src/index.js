@@ -38,6 +38,8 @@ const notify = require('./services/notify');
 const sponsors = require('./services/sponsors');
 const profiles = require('./services/profiles');
 const discovery = require('./services/discovery');
+const auth = require('./services/auth');
+const { rateLimit } = require('./services/ratelimit');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,7 +47,7 @@ const simulator = new Simulator(pipeline);
 
 app.disable('x-powered-by');
 app.set('trust proxy', 'loopback');
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Node-Key', 'X-Transport'] }));
+app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization', 'X-Node-Key', 'X-Transport', 'X-Panel-Key', 'X-Panel-Fw'] }));
 app.use(express.json({ limit: '2mb' }));
 
 app.use((req, res, next) => {
@@ -54,6 +56,21 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// baseline security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  next();
+});
+
+// liveness for monitors / orchestrators (no session needed, no internals)
+app.get('/healthz', (req, res) => res.json({ ok: true, uptimeS: Math.round(process.uptime()) }));
+
+// optional operator login (ACCESS_PIN); sensor uplink and the panel summary stay reachable
+auth.routes(app, rateLimit);
+app.use(auth.guard);
 
 app.use('/api', require('./routes/ingest'));
 app.use('/api/nodes', require('./routes/nodes'));
@@ -99,12 +116,25 @@ realtime.onHello = () => ({
   serverTime: Date.now()
 });
 notify.onChange = (status) => realtime.broadcast('notify', status);
-realtime.init(server);
+realtime.init(server, { verify: auth.verifyUpgrade });
+
+// Optional HTTPS listener (needed for the installable app / service worker on phones).
+// HTTPS_CERT / HTTPS_KEY = PEM files, e.g. from scripts/make-cert.sh. Nodes keep using plain HTTP.
+let httpsServer = null;
+if (process.env.HTTPS_CERT && process.env.HTTPS_KEY) {
+  try {
+    httpsServer = require('https').createServer({ cert: fs.readFileSync(process.env.HTTPS_CERT), key: fs.readFileSync(process.env.HTTPS_KEY) }, app);
+    realtime.init(httpsServer);
+    const hp = Number(process.env.HTTPS_PORT) || 8443;
+    httpsServer.listen(hp, config.HOST, () => console.log(`[https] dashboard also on https://${config.HOST}:${hp}`));
+  } catch (err) { console.warn('[https] disabled:', err.message); }
+}
 
 server.listen(config.PORT, config.HOST, () => {
   console.log('==========================================================');
   console.log(`  CYBER CHAUKIDAAR SERVER v2  http://${config.HOST}:${config.PORT}`);
   console.log(`  uplink: POST /api/ingest     dashboards: ws://.../ws`);
+  console.log(`  operator login: ${auth.status().enabled ? 'ON (ACCESS_PIN)' : 'off (set ACCESS_PIN to require a PIN)'}`);
   console.log(`  site: ${registry.site.width}×${registry.site.height} m, ${registry.list().length} node(s) configured`);
   console.log('==========================================================');
   discovery.start();
@@ -119,6 +149,7 @@ function shutdown() {
   discovery.stop();
   store.flushSync();
   require('./services/timeseries').close().catch(() => {});
+  if (httpsServer) httpsServer.close();
   server.close(() => process.exit(0));
   setTimeout(() => process.exit(0), 1500).unref();
 }

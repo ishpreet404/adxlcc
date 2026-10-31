@@ -28,12 +28,13 @@ static Adafruit_NeoPixel pixel(STATUS_PIXEL_COUNT, STATUS_PIXEL_PIN, NEO_GRB + N
 
 // ------------------------------------------------------------------ settings (serial `cfg ...`)
 static Preferences prefs;
-static String wifiSsid, wifiPass, serverCfg;
+static String wifiSsid, wifiPass, serverCfg, panelKey;   // panelKey -> X-Panel-Key (server PANEL_KEY)
 static void loadSettings() {
   prefs.begin("base", false);
   wifiSsid  = prefs.isKey("ssid") ? prefs.getString("ssid") : String(BASE_WIFI_SSID);
   wifiPass  = prefs.isKey("pass") ? prefs.getString("pass") : String(BASE_WIFI_PASS);
   serverCfg = prefs.isKey("url")  ? prefs.getString("url")  : String(BASE_SERVER_URL);
+  panelKey  = prefs.isKey("key")  ? prefs.getString("key")  : String("");
   prefs.end();
 }
 static void saveKV(const char* k, const String& v) { prefs.begin("base", false); prefs.putString(k, v); prefs.end(); }
@@ -97,6 +98,7 @@ static int httpPost(const String& path, const String& body) {
   HTTPClient http; http.setConnectTimeout(1500); http.setTimeout(2500);
   if (!http.begin(serverUrl + path)) return -1;
   http.addHeader("Content-Type", "application/json");
+  if (panelKey.length()) http.addHeader("X-Panel-Key", panelKey);
   int code = http.POST((uint8_t*)body.c_str(), body.length());
   http.end(); return code;
 }
@@ -106,6 +108,7 @@ static bool pollOnce() {
   HTTPClient http; http.setConnectTimeout(1500); http.setTimeout(2500);
   if (!http.begin(serverUrl + "/api/basestation")) return false;
   http.addHeader("X-Panel-Fw", BASE_FW_VERSION);
+  if (panelKey.length()) http.addHeader("X-Panel-Key", panelKey);
   int code = http.GET();
   if (code != 200) { http.end(); return false; }
   JsonDocument d;
@@ -389,9 +392,10 @@ static void handleConsole() {
     line.trim();
     if (line.startsWith("cfg wifi ")) { int sp = line.indexOf(' ', 9); if (sp > 0) { wifiSsid = line.substring(9, sp); wifiPass = line.substring(sp + 1); saveKV("ssid", wifiSsid); saveKV("pass", wifiPass); Serial.println("saved; reconnecting"); WiFi.disconnect(); } }
     else if (line.startsWith("cfg server ")) { serverCfg = line.substring(11); serverCfg.trim(); saveKV("url", serverCfg); Serial.println("saved; reboot to apply"); }
+    else if (line.startsWith("cfg key ")) { panelKey = line.substring(8); panelKey.trim(); saveKV("key", panelKey); Serial.println("panel key saved"); }
     else if (line == "cfg show" || line == "cfg") {
       xSemaphoreTake(mtx, portMAX_DELAY); Snap s = shared; xSemaphoreGive(mtx);
-      Serial.printf("fw:%s ssid:%s server:%s resolved:%s link:%s heap:%u\n", BASE_FW_VERSION, wifiSsid.c_str(), serverCfg.c_str(), s.server.c_str(), s.link ? "up" : "down", (unsigned)ESP.getFreeHeap());
+      Serial.printf("fw:%s ssid:%s server:%s resolved:%s key:%s link:%s heap:%u\n", BASE_FW_VERSION, wifiSsid.c_str(), serverCfg.c_str(), s.server.c_str(), panelKey.length() ? "set" : "none", s.link ? "up" : "down", (unsigned)ESP.getFreeHeap());
     }
     else if (line == "scan") { int n = WiFi.scanNetworks(); for (int i = 0; i < n; i++) Serial.printf("  %2d) rssi %4d ch %2d %s\n", i, WiFi.RSSI(i), WiFi.channel(i), WiFi.SSID(i).c_str()); if (!n) Serial.println("  (none)"); WiFi.scanDelete(); }
     else if (line == "btnscan") runBtnScan();
