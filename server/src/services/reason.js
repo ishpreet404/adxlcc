@@ -20,7 +20,8 @@ let GoogleGenAI = null;
 try { ({ GoogleGenAI } = require('@google/genai')); } catch { /* sdk absent — template mode */ }
 
 const KEY = (process.env.GEMINI_API_KEY || '').trim();
-const MODEL = (process.env.GEMINI_MODEL || 'gemini-3.8-flash').trim();
+const MODEL = (process.env.GEMINI_MODEL || 'gemini-flash-lite-latest').trim();
+const SUPPORTS_THINKING = !/lite/i.test(MODEL);  // lite models don't think and reject thinkingConfig
 const enabled = Boolean(GoogleGenAI && KEY);
 const ai = enabled ? new GoogleGenAI({ apiKey: KEY }) : null;
 
@@ -56,9 +57,12 @@ async function generate(prompt, { retries = 2 } = {}) {
   for (let i = 0; i <= retries; i++) {
     try {
       const res = await Promise.race([
-        // thinkingBudget:0 disables the 3.x models' extended reasoning, which otherwise
-        // takes 30s+ and stalls the request; our prompts are simple narration / SQL.
-        ai.models.generateContent({ model: MODEL, contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } } }),
+        // Full 3.x models do extended reasoning by default (30s+), so disable it with
+        // thinkingBudget:0 for simple narration/SQL. "lite" models don't think and reject
+        // that config with a 400, so only send it for non-lite models.
+        ai.models.generateContent(SUPPORTS_THINKING
+          ? { model: MODEL, contents: prompt, config: { thinkingConfig: { thinkingBudget: 0 } } }
+          : { model: MODEL, contents: prompt }),
         sleep(CALL_TIMEOUT_MS).then(() => { throw new Error('gemini timeout'); })
       ]);
       return (res.text || '').trim();
