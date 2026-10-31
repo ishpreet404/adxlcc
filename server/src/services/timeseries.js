@@ -28,6 +28,7 @@ let pool = null;      // read-write
 let poolRo = null;    // read-only (text-to-SQL)
 let ready = false;
 let writeCount = 0;
+let seenCount = 0;
 let lastError = null;
 
 const SCHEMA = `
@@ -91,16 +92,25 @@ WITH (timescaledb.continuous) AS
 WITH NO DATA;
 `;
 
+// Keep the 1s rollup refreshed automatically so the dashboard always has recent buckets.
+const CAGG_POLICY = `
+SELECT add_continuous_aggregate_policy('telemetry_1s',
+  start_offset => INTERVAL '15 minutes',
+  end_offset   => INTERVAL '10 seconds',
+  schedule_interval => INTERVAL '10 seconds',
+  if_not_exists => TRUE);
+`;
+
 async function init() {
   if (!enabled) {
     console.log('[tiger] disabled (no DATABASE_URL / pg) — using file store only');
     return false;
   }
-  pool = new Pool({ connectionString: URL, max: 4, ssl: sslFor(URL) });
-  poolRo = URL_RO === URL ? pool : new Pool({ connectionString: URL_RO, max: 2, ssl: sslFor(URL_RO) });
+  pool = new Pool({ connectionString: stripSslmode(URL), max: 4, ssl: sslFor(URL) });
+  poolRo = URL_RO === URL ? pool : new Pool({ connectionString: stripSslmode(URL_RO), max: 2, ssl: sslFor(URL_RO) });
   try {
     await pool.query(SCHEMA);
-    try { await pool.query(CAGG); } catch (e) { console.warn('[tiger] continuous aggregate skipped:', e.message); }
+    try { await pool.query(CAGG); await pool.query(CAGG_POLICY); } catch (e) { console.warn('[tiger] continuous aggregate skipped:', e.message); }
     ready = true;
     console.log('[tiger] connected, hypertables ready');
     return true;
@@ -112,17 +122,31 @@ async function init() {
   }
 }
 
+// Remove the sslmode param so pg doesn't build its own conflicting ssl config;
+// TLS is driven entirely by the ssl object from sslFor(). Other params (e.g. the
+// read-only options string) are preserved.
+function stripSslmode(url) {
+  return url.replace(/([?&])sslmode=[^&]*(&|$)/i, (m, pre, post) => (pre === '?' && post === '&') ? '?' : (post === '&' ? pre : '')).replace(/[?&]$/, '');
+}
+
 function sslFor(url) {
-  // Tiger Cloud requires TLS and presents a publicly-trusted cert, so verify by default.
-  // DATABASE_SSL_INSECURE=1 is an explicit escape hatch for odd local setups only.
-  if (/sslmode=disable/.test(url)) return false;
+  // Follow the URL's sslmode, matching libpq semantics:
+  //   disable            -> no TLS
+  //   verify-ca/full     -> encrypt AND verify the CA chain (needs a trusted/pinned CA)
+  //   require/prefer/...  -> encrypt but do not verify the CA (Tiger DEV uses a private CA)
+  // Traffic is encrypted in every TLS case; only CA verification differs.
+  const m = /sslmode=([a-z-]+)/i.exec(url);
+  const mode = m ? m[1].toLowerCase() : 'require';
+  if (mode === 'disable') return false;
   if ((process.env.DATABASE_SSL_INSECURE || '') === '1') return { rejectUnauthorized: false };
-  return { rejectUnauthorized: true };
+  if (mode === 'verify-ca' || mode === 'verify-full') return { rejectUnauthorized: true };
+  return { rejectUnauthorized: false };
 }
 
 function recordTelemetry(node, t, fusion, position) {
   if (!ready) return;
-  if (SAMPLING > 1 && (writeCount++ % SAMPLING) !== 0) return;
+  if (SAMPLING > 1 && (seenCount++ % SAMPLING) !== 0) return;
+  writeCount++;
   const vals = [
     new Date(t.receivedAt), node.id, node.name || null, t.transport || null, t.mode || null,
     fusion && fusion.state || null,
