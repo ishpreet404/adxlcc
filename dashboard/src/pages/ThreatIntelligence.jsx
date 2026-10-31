@@ -1,9 +1,39 @@
 import React, { useState } from 'react';
-import { Database, Search, AlertTriangle, Eye, Shield, Clock, Server } from 'lucide-react';
-import { Card, Input, Button, StatusBadge, Separator } from '../components';
+import { Database, Search, AlertTriangle, Eye, ShieldCheck, Clock3, Server, CircleAlert, Printer, RotateCcw, Info } from 'lucide-react';
+import { Card, Input, Button, Spinner } from '../components';
+import { fmtInt } from '../lib/format';
 
-const APP_API_BASE_URL = (import.meta.env.VITE_APP_API_BASE_URL || 'http://localhost:8787').replace(/\/+$/, '');
+const APP_API_BASE_URL = (import.meta.env.VITE_APP_API_BASE_URL || '').replace(/\/+$/, '');
 const BREACH_CHECK_ENDPOINT = `${APP_API_BASE_URL}/api/breach-check`;
+
+// Field categorization
+const FIELD_TYPES = {
+  email: ['Email', 'email'],
+  phone: ['Phone', 'Phone2', 'Phone3'],
+  address: ['Address', 'City', 'State', 'Region', 'Country', 'PostCode', 'Zip'],
+  sensitive: ['Password', 'CreditCard', 'CardExpiration', 'DocNumber', 'PassportNumber', 'IP', 'SSN', 'CVV'],
+  personal: ['Name', 'FirstName', 'LastName', 'FullName', 'Username', 'Gender', 'Age', 'DOB', 'Birthday'],
+  default: []
+};
+
+const getFieldType = (fieldName) => {
+  for (const [type, fields] of Object.entries(FIELD_TYPES)) {
+    if (fields.some(f => fieldName.toLowerCase().includes(f.toLowerCase()))) return type;
+  }
+  return 'default';
+};
+
+const formatFieldName = (name) => {
+  const s = name.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim().toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+const Stat = ({ icon: Icon, label, value, tone = 'text-gray-50' }) => (
+  <div className="rounded-lg border border-terminal-border px-4 py-3 min-w-0">
+    <div className="text-[12px] text-terminal-muted flex items-center gap-1.5"><Icon className="w-3.5 h-3.5" aria-hidden="true" />{label}</div>
+    <div className={`num text-xl font-semibold mt-1 ${tone}`}>{value}</div>
+  </div>
+);
 
 const BreachChecker = () => {
   const [query, setQuery] = useState('');
@@ -11,346 +41,148 @@ const BreachChecker = () => {
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
 
-  // Field categorization
-  const fieldTypes = {
-    email: ['Email', 'email'],
-    phone: ['Phone', 'Phone2', 'Phone3'],
-    address: ['Address', 'City', 'State', 'Region', 'Country', 'PostCode', 'Zip'],
-    sensitive: ['Password', 'CreditCard', 'CardExpiration', 'DocNumber', 'PassportNumber', 'IP', 'SSN', 'CVV'],
-    personal: ['Name', 'FirstName', 'LastName', 'FullName', 'Username', 'Gender', 'Age', 'DOB', 'Birthday'],
-    default: []
-  };
-
-  const getFieldType = (fieldName) => {
-    for (const [type, fields] of Object.entries(fieldTypes)) {
-      if (fields.some(f => fieldName.toLowerCase().includes(f.toLowerCase()))) {
-        return type;
-      }
-    }
-    return 'default';
-  };
-
-  const formatFieldName = (name) => {
-    return name
-      .replace(/([A-Z])/g, ' $1')
-      .replace(/[_-]/g, ' ')
-      .trim()
-      .toUpperCase();
-  };
-
   const checkBreaches = async () => {
     if (!query.trim()) return;
-    
     setIsSearching(true);
     setError(null);
     setResults(null);
-    
     try {
-      const payload = {
-        query,
-        limit: 100,
-        lang: "en"
-      };
-
       const response = await fetch(BREACH_CHECK_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, limit: 100, lang: 'en' })
       });
-
-      const data = await response.json();
-      
-      if (!response.ok || data.error) {
-        setError(`API Error: ${data.error || response.statusText || 'Please try again later'}`);
-      } else {
-        setResults(data);
-      }
+      let data = {};
+      try { data = await response.json(); } catch { /* non-JSON */ }
+      if (!response.ok || data.error) setError(data.error || response.statusText || 'Please try again later.');
+      else setResults(data);
     } catch (err) {
-      setError(`Connection Error: ${err.message}`);
+      setError(`Connection error: ${err.message}`);
     } finally {
       setIsSearching(false);
     }
   };
 
+  const found = results && results.List && results.NumOfResults > 0;
+
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-shadow-terminal mb-2">
-          $ BREACH_CHECKER --SCAN=DATA
-        </h1>
-        <p className="text-terminal-muted">
-          Search for exposed data in 15B+ breach records (email, phone, name)
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-[13px] text-terminal-muted">Check whether an email address, phone number or name appears in known data-breach records.</p>
 
-      <Separator variant="equals" />
-
-      {/* Search Section */}
-      <Card title="▸ DATA EXPOSURE SCANNER">
-        <div className="space-y-4">
-          <div className="flex items-center gap-2 p-4 border border-terminal-amber text-terminal-amber">
-            <Eye className="w-5 h-5 flex-shrink-0" />
-            <div className="text-sm">
-              Your data is never stored. All searches are encrypted and anonymous.
-            </div>
+      <Card title="Data exposure lookup" icon={Search}>
+        <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); checkBreaches(); }}>
+          <div className="flex items-start gap-2 rounded-lg border border-terminal-border bg-terminal-black/40 px-3 py-2.5 text-[12px] text-terminal-muted">
+            <Eye className="w-4 h-4 flex-shrink-0 mt-px" aria-hidden="true" />
+            <span>Queries are sent through this server to the lookup provider and are not stored by the dashboard.</span>
           </div>
-
-          <Input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && checkBreaches()}
-            placeholder="email@example.com or phone number"
-            prompt="query>"
-            className="text-lg"
-          />
-
-          <Button 
-            onClick={checkBreaches}
-            disabled={!query || isSearching}
-            className="w-full"
-          >
-            <div className="flex items-center justify-center gap-2">
-              <Search className="w-4 h-4" />
-              {isSearching ? 'SCANNING DATABASES...' : 'CHECK FOR BREACHES'}
-            </div>
+          <label htmlFor="osint-query" className="sr-only">Email address or phone number</label>
+          <Input id="osint-query" icon={Search} type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="email@example.com or phone number" autoComplete="off" />
+          <Button type="submit" variant="primary" disabled={!query.trim() || isSearching} className="w-full sm:w-auto">
+            {isSearching ? <Spinner /> : <Search className="w-4 h-4" aria-hidden="true" />}{isSearching ? 'Searching…' : 'Check for breaches'}
           </Button>
-        </div>
+        </form>
       </Card>
 
-      {/* Scanning Progress */}
       {isSearching && (
-        <Card className="border-terminal-amber text-terminal-amber">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Database className="w-5 h-5 animate-pulse" />
-              <span>QUERYING LEAKOSINT DATABASE...</span>
-            </div>
-            <div className="text-xs space-y-1 text-terminal-muted">
-              <div>{'[████████████████████]'} CHECKING 15B+ RECORDS</div>
-              <div>{'[█████████████████░░░]'} ANALYZING DARK WEB DATA</div>
-              <div>{'[███████████████████░]'} CROSS-REFERENCING LEAKS</div>
-            </div>
-            <div className="text-xs flex items-center gap-2">
-              <span className="cursor"></span>
-              <span>Searching for: {query}</span>
-            </div>
+        <Card>
+          <div className="flex items-center gap-3 text-[13px] text-gray-300" role="status">
+            <Spinner className="w-5 h-5 text-sky-300" />
+            <div><div className="font-medium">Searching breach databases…</div><div className="text-terminal-muted text-[12px]">Looking up “{query}”</div></div>
           </div>
         </Card>
       )}
 
-      {/* Error Display */}
       {error && !isSearching && (
-        <Card className="border-terminal-red">
-          <div className="space-y-3">
-            <div className="flex items-center gap-3">
-              <AlertTriangle className="w-8 h-8 text-terminal-red" />
-              <div>
-                <div className="text-xl font-bold text-terminal-red">[CONNECTION ERROR]</div>
-                <div className="text-terminal-muted">{error}</div>
-              </div>
+        <Card>
+          <div className="flex items-start gap-3" role="alert">
+            <CircleAlert className="w-5 h-5 text-red-400 flex-shrink-0" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold text-red-200">Lookup failed</div>
+              <div className="text-[13px] text-terminal-muted break-words">{error}</div>
             </div>
-            <Button onClick={checkBreaches} className="w-full">
-              RETRY SEARCH
-            </Button>
+            <Button size="sm" variant="outline" onClick={checkBreaches}><RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />Retry</Button>
           </div>
         </Card>
       )}
 
-      {/* Results */}
-      {results && !isSearching && !error && (
+      {results && !isSearching && !error && !found && (
+        <Card>
+          <div className="flex items-center gap-4">
+            <span className="w-11 h-11 rounded-full bg-terminal-green/10 text-green-300 flex items-center justify-center flex-shrink-0"><ShieldCheck className="w-6 h-6" aria-hidden="true" /></span>
+            <div>
+              <div className="text-[15px] font-semibold text-gray-50">No exposure found</div>
+              <div className="text-[13px] text-terminal-muted">“{query}” did not appear in the breach database. Keep using unique passwords and two-factor authentication.</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {found && !isSearching && !error && (
         <>
-          {/* No Results Found */}
-          {(!results.List || results.NumOfResults === 0) && (
-            <Card title="▸ SCAN COMPLETE" className="border-terminal-green">
-              <div className="flex items-center gap-4">
-                <Shield className="w-12 h-12 text-terminal-green" />
-                <div>
-                  <div className="text-3xl font-bold text-terminal-green">NO DATA FOUND</div>
-                  <div className="text-terminal-muted">No breached data was found for: {query}</div>
-                </div>
-              </div>
-              <div className="mt-4 p-3 border border-terminal-green">
-                <StatusBadge status="ok">EXCELLENT NEWS</StatusBadge>
-                <div className="mt-2 text-sm">
-                  This query did not appear in our breach database. However, continue practicing good security hygiene.
-                </div>
-              </div>
-            </Card>
-          )}
+          <Card title="Results" icon={AlertTriangle}>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Stat icon={Database} label="Databases" value={fmtInt(results.NumOfDatabase)} tone="text-red-300" />
+              <Stat icon={AlertTriangle} label="Records found" value={fmtInt(results.NumOfResults)} tone="text-red-300" />
+              <Stat icon={Clock3} label="Search time" value={results['search time'] !== undefined ? `${Number(results['search time']).toFixed(3)} s` : '—'} />
+              <Stat icon={Server} label="Requests left" value={results.free_requests_left !== undefined ? fmtInt(results.free_requests_left) : '—'} />
+            </div>
+            <div className="mt-3 rounded-lg border border-terminal-red/30 bg-terminal-red/[0.06] px-3 py-2.5 text-[13px] text-red-200">
+              This information was found in {results.NumOfDatabase} breach database{results.NumOfDatabase > 1 ? 's' : ''}. Review the records below and act on the recommendations.
+            </div>
+          </Card>
 
-          {/* Results Found */}
-          {results.List && results.NumOfResults > 0 && (
-            <>
-              {/* Statistics Header */}
-              <Card title="▸ SCAN RESULTS" className="border-terminal-red">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="text-center p-3 border border-terminal-red">
-                    <Database className="w-6 h-6 mx-auto mb-2 text-terminal-red" />
-                    <div className="text-2xl font-bold text-terminal-red">{results.NumOfDatabase}</div>
-                    <div className="text-xs text-terminal-muted">DATABASES</div>
-                  </div>
-                  <div className="text-center p-3 border border-terminal-red">
-                    <AlertTriangle className="w-6 h-6 mx-auto mb-2 text-terminal-red" />
-                    <div className="text-2xl font-bold text-terminal-red">{results.NumOfResults}</div>
-                    <div className="text-xs text-terminal-muted">RECORDS FOUND</div>
-                  </div>
-                  <div className="text-center p-3 border border-terminal-green">
-                    <Clock className="w-6 h-6 mx-auto mb-2 text-terminal-green" />
-                    <div className="text-2xl font-bold text-terminal-green">{results['search time']?.toFixed(3)}s</div>
-                    <div className="text-xs text-terminal-muted">SEARCH TIME</div>
-                  </div>
-                  <div className="text-center p-3 border border-terminal-green">
-                    <Server className="w-6 h-6 mx-auto mb-2 text-terminal-green" />
-                    <div className="text-2xl font-bold text-terminal-green">{results.free_requests_left}</div>
-                    <div className="text-xs text-terminal-muted">REQUESTS LEFT</div>
-                  </div>
-                </div>
-
-                <div className="mt-4 p-3 border border-terminal-red text-terminal-red">
-                  <StatusBadge status="error">CRITICAL - DATA EXPOSED</StatusBadge>
-                  <div className="mt-2 text-sm">
-                    Your information was found in {results.NumOfDatabase} breach database{results.NumOfDatabase > 1 ? 's' : ''}.
-                    Review all exposed data below and take immediate action.
-                  </div>
-                </div>
-              </Card>
-
-              {/* Database Results */}
-              <div className="space-y-4">
-                <h2 className="text-xl font-bold flex items-center gap-2">
-                  <span>DATABASE RECORDS:</span>
-                  <span className="text-terminal-red">({results.NumOfResults} total)</span>
-                </h2>
-
-                {Object.entries(results.List).map(([dbName, dbData]) => (
-                  <Card key={dbName} className="border-terminal-red">
-                    <div className="space-y-4">
-                      {/* Database Header */}
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="text-xl font-bold text-terminal-red flex items-center gap-2">
-                            <Database className="w-5 h-5" />
-                            🔓 {dbName}
-                          </div>
-                          {dbData.InfoLeak && (
-                            <div className="mt-2 text-sm text-terminal-amber flex items-start gap-2">
-                              <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                              <span>{dbData.InfoLeak}</span>
+          <div className="space-y-3">
+            {Object.entries(results.List).map(([dbName, dbData]) => (
+              <Card key={dbName} title={dbName} icon={Database} headerAction={<span className="text-[12px] text-red-300 num">{fmtInt(dbData.NumOfResults)} record{dbData.NumOfResults > 1 ? 's' : ''}</span>}>
+                {dbData.InfoLeak && (
+                  <div className="mb-3 text-[13px] text-amber-200 flex items-start gap-2"><Info className="w-4 h-4 mt-0.5 flex-shrink-0" aria-hidden="true" /><span>{dbData.InfoLeak}</span></div>
+                )}
+                <div className="space-y-3">
+                  {dbData.Data && dbData.Data.map((entry, entryIdx) => (
+                    <div key={entryIdx} className="rounded-lg border border-terminal-border p-3">
+                      <div className="text-[12px] font-medium text-terminal-muted mb-2">Record {entryIdx + 1}</div>
+                      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+                        {Object.entries(entry).map(([fieldName, fieldValue]) => {
+                          if (!fieldValue || fieldValue === 'null') return null;
+                          const type = getFieldType(fieldName);
+                          const cls = type === 'sensitive' ? 'text-red-300' : type === 'email' || type === 'phone' ? 'text-amber-200' : 'text-gray-200';
+                          return (
+                            <div key={fieldName} className="min-w-0">
+                              <dt className="text-[11px] text-terminal-muted">{formatFieldName(fieldName)}</dt>
+                              <dd className={`text-[13px] font-mono break-all ${cls}`}>{String(fieldValue)}</dd>
                             </div>
-                          )}
-                        </div>
-                        <div className="px-3 py-1 border border-terminal-red text-terminal-red text-sm">
-                          {dbData.NumOfResults} RECORD{dbData.NumOfResults > 1 ? 'S' : ''}
-                        </div>
-                      </div>
-
-                      <Separator variant="dots" />
-
-                      {/* Data Entries */}
-                      {dbData.Data && dbData.Data.map((entry, entryIdx) => (
-                        <div key={entryIdx} className="border border-terminal-muted p-3">
-                          <div className="text-sm font-bold mb-3 text-terminal-amber">
-                            [RECORD #{entryIdx + 1}]
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {Object.entries(entry).map(([fieldName, fieldValue]) => {
-                              if (!fieldValue || fieldValue === 'null') return null;
-                              
-                              const fieldType = getFieldType(fieldName);
-                              const fieldClass = 
-                                fieldType === 'sensitive' ? 'text-terminal-red' :
-                                fieldType === 'email' ? 'text-terminal-amber' :
-                                fieldType === 'phone' ? 'text-terminal-amber' :
-                                'text-terminal-green';
-
-                              return (
-                                <div key={fieldName} className="space-y-1">
-                                  <div className="text-xs text-terminal-muted">
-                                    {formatFieldName(fieldName)}:
-                                  </div>
-                                  <div className={`text-sm font-mono ${fieldClass} break-all`}>
-                                    {fieldValue}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      ))}
+                          );
+                        })}
+                      </dl>
                     </div>
-                  </Card>
-                ))}
-              </div>
-
-              {/* Recommendations */}
-              <Card title="▸ IMMEDIATE ACTIONS REQUIRED" className="border-terminal-amber">
-                <div className="space-y-3 text-terminal-amber">
-                  <div className="flex items-start gap-3">
-                    <span className="text-terminal-red font-bold">1.</span>
-                    <span>Change passwords immediately on all affected accounts</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-terminal-red font-bold">2.</span>
-                    <span>Enable 2FA (Two-Factor Authentication) everywhere possible</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-terminal-red font-bold">3.</span>
-                    <span>Use unique passwords for each service (use a password manager)</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-terminal-red font-bold">4.</span>
-                    <span>Monitor accounts for suspicious activity</span>
-                  </div>
-                  <div className="flex items-start gap-3">
-                    <span className="text-terminal-red font-bold">5.</span>
-                    <span>If credit card info was exposed, contact your bank immediately</span>
-                  </div>
-
-                  <Separator variant="dots" />
-
-                  <div className="flex gap-2">
-                    <Button onClick={() => setResults(null)} className="flex-1">
-                      NEW SEARCH
-                    </Button>
-                    <Button variant="warning" onClick={() => window.print()}>
-                      PRINT REPORT
-                    </Button>
-                  </div>
+                  ))}
                 </div>
               </Card>
-            </>
-          )}
+            ))}
+          </div>
+
+          <Card title="Recommended actions" icon={ShieldCheck}>
+            <ol className="list-decimal pl-5 space-y-1.5 text-[13px] text-gray-200 marker:text-terminal-muted">
+              <li>Change passwords on all affected accounts.</li>
+              <li>Enable two-factor authentication wherever possible.</li>
+              <li>Use a unique password for each service (a password manager helps).</li>
+              <li>Watch the affected accounts for suspicious activity.</li>
+              <li>If card details were exposed, contact your bank.</li>
+            </ol>
+            <div className="flex gap-2 mt-4 flex-wrap">
+              <Button variant="outline" size="sm" onClick={() => setResults(null)}><RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />New search</Button>
+              <Button variant="outline" size="sm" onClick={() => window.print()}><Printer className="w-3.5 h-3.5" aria-hidden="true" />Print report</Button>
+            </div>
+          </Card>
         </>
       )}
 
-      {/* Info Section */}
-      <Card title="▸ HOW IT WORKS">
-        <div className="space-y-4 text-sm">
-          <div>
-            <div className="font-bold mb-1">$ COMPREHENSIVE DATABASE</div>
-            <div className="text-terminal-muted">
-              We scan 15+ billion records from known data breaches, including dark web dumps and leaked databases.
-            </div>
-          </div>
-          <Separator variant="dots" />
-          <div>
-            <div className="font-bold mb-1">$ PRIVACY FIRST</div>
-            <div className="text-terminal-muted">
-              Your email is hashed before searching. We never store or log your searches.
-            </div>
-          </div>
-          <Separator variant="dots" />
-          <div>
-            <div className="font-bold mb-1">$ CONTINUOUS MONITORING</div>
-            <div className="text-terminal-muted">
-              Enable alerts to be notified immediately when your email appears in new breaches.
-            </div>
-          </div>
-        </div>
+      <Card title="How it works" icon={Info}>
+        <dl className="space-y-3 text-[13px]">
+          <div><dt className="font-medium text-gray-200">Breach database</dt><dd className="text-terminal-muted">Looks up records from publicly known data breaches and leaked databases.</dd></div>
+          <div><dt className="font-medium text-gray-200">Privacy</dt><dd className="text-terminal-muted">The dashboard does not keep your searches; the request is proxied by this server.</dd></div>
+          <div><dt className="font-medium text-gray-200">Why it is here</dt><dd className="text-terminal-muted">Insider and social-engineering risk often starts with leaked staff credentials — check site personnel alongside the physical perimeter.</dd></div>
+        </dl>
       </Card>
     </div>
   );

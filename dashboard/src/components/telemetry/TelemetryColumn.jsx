@@ -1,14 +1,21 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BatteryCharging, Wifi, Radio, Bluetooth, Cpu, Gauge, Zap, ShieldAlert, Compass, Volume2, VolumeX, Siren, Crosshair } from 'lucide-react';
+import { BatteryCharging, Wifi, Radio, Bluetooth, Cpu, Gauge, ShieldAlert, Compass, Volume2, VolumeX, Leaf } from 'lucide-react';
 import useStore from '../../store/useStore';
-import { fmt, ago, uptime, rssiBars, batteryColor, statusColor, hours } from '../../lib/format';
+import { fmt, ago, uptime, rssiBars, batteryColor, statusColor, hours, titleCase } from '../../lib/format';
 import { Button } from '../Button';
+import { Tag } from '../StatusBadge';
 import { sonifier } from '../../lib/sonify';
 
-const TransportIcon = ({ tr }) => (tr === 'ble' ? <Bluetooth className="w-3.5 h-3.5" /> : tr === 'lora' ? <Radio className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />);
+const TransportIcon = ({ tr }) => (tr === 'ble' ? <Bluetooth className="w-3.5 h-3.5" aria-hidden="true" /> : tr === 'lora' ? <Radio className="w-3.5 h-3.5" aria-hidden="true" /> : <Wifi className="w-3.5 h-3.5" aria-hidden="true" />);
 const Row = ({ k, v, cls = '' }) => (<><dt>{k}</dt><dd className={cls}>{v}</dd></>);
+const Section = ({ icon: Icon, title, children }) => (
+  <div className="rounded-lg border border-terminal-border p-3">
+    <div className="flex items-center gap-1.5 text-[12px] font-medium text-gray-400 mb-2">{Icon && <Icon className="w-3.5 h-3.5" aria-hidden="true" />}{title}</div>
+    {children}
+  </div>
+);
 
-/** Everything the operator wants to know about one node's health, plus node controls. */
+/** Everything the operator wants to know about one node's health. */
 export const TelemetryColumn = ({ node }) => {
   const command = useStore(s => s.command);
   const waves = useStore(s => s.waves);
@@ -29,7 +36,7 @@ export const TelemetryColumn = ({ node }) => {
     if (listening) { sonifier.stop(); setListening(false); } else { sonifier.start(); lastLen.current = wave ? wave.a.length : 0; setListening(true); }
   };
 
-  if (!node) return <div className="text-[11px] text-terminal-muted">Select a node.</div>;
+  if (!node) return <div className="text-[13px] text-terminal-muted">Select a node.</div>;
   const t = node.latest;
   const bat = t ? t.battery : null;
   const bars = t ? rssiBars(t.rssi) : 0;
@@ -38,95 +45,91 @@ export const TelemetryColumn = ({ node }) => {
   const fc = node.batteryForecast;
 
   return (
-    <div className="space-y-3 text-[11px]">
+    <div className="space-y-3 text-[12px]">
       <div>
-        <div className="flex items-center justify-between">
-          <div className="font-bold text-sm text-gray-100">{node.name}</div>
-          <span className={`font-bold ${statusColor(node.status)}`}>{node.status}</span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="font-semibold text-[14px] text-gray-50 truncate">{node.name}</div>
+          <span className={`text-[12px] font-medium ${statusColor(node.status)}`}>{titleCase(node.status)}</span>
         </div>
-        <div className="text-terminal-muted">{node.id}{node.simulated ? ' · SIMULATED' : ''} · fw {t ? t.firmware : '—'}</div>
+        <div className="text-terminal-muted mt-0.5 flex items-center gap-1.5 flex-wrap"><span className="num">{node.id}</span>{node.simulated && <Tag tone="violet">SIM</Tag>}<span>· firmware <span className="num">{t ? t.firmware : '—'}</span></span></div>
       </div>
 
       {tamper && tamper.flag && (
-        <div className="border border-terminal-violet bg-terminal-violet/10 text-terminal-violet p-2 flex items-center gap-2 animate-pulse">
-          <ShieldAlert className="w-4 h-4" /><div><div className="font-bold">TAMPER — node {tamper.impact ? 'struck' : 'moved'}</div><div className="text-[10px]">tilt {fmt(tamper.tilt, 1)}° from calibrated rest</div></div>
+        <div className="rounded-lg border border-terminal-violet/40 bg-terminal-violet/10 text-violet-200 p-3 flex items-center gap-2" role="alert">
+          <ShieldAlert className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+          <div><div className="font-semibold">Tamper — node {tamper.impact ? 'struck' : 'moved'}</div><div className="text-[11px] text-violet-300/80">Tilt {fmt(tamper.tilt, 1)}° from calibrated rest</div></div>
         </div>
       )}
 
-      <div className="border border-terminal-border p-2">
-        <div className="flex items-center gap-1.5 text-terminal-muted mb-1"><BatteryCharging className="w-3.5 h-3.5" /> BATTERY</div>
-        <div className="flex items-center gap-2">
-          <div className="relative w-14 h-6 border-2 border-gray-400 rounded-sm">
-            <div className="absolute -right-1.5 top-1.5 w-1 h-2.5 bg-gray-400" />
-            <div className="h-full transition-all" style={{ width: `${bat ? bat.percent : 0}%`, background: bat ? batteryColor(bat.percent) : '#374151' }} />
+      <Section icon={BatteryCharging} title="Battery">
+        <div className="flex items-center gap-3">
+          <div className="relative w-12 h-6 border-2 border-gray-500 rounded-[5px] p-0.5" aria-hidden="true">
+            <div className="absolute -right-1.5 top-1.5 w-1 h-2 bg-gray-500 rounded-r-sm" />
+            <div className="h-full rounded-[2px] transition-all" style={{ width: `${bat ? (bat.external ? 100 : bat.percent) : 0}%`, background: bat ? (bat.external ? '#38bdf8' : batteryColor(bat.percent)) : '#243142' }} />
           </div>
           <div>
-            <div className="text-lg font-bold leading-none tabular-nums" style={{ color: bat ? batteryColor(bat.percent) : '#6b7280' }}>{bat ? `${bat.percent}%` : '—'}</div>
-            <div className="text-terminal-muted tabular-nums">{bat ? `${fmt(bat.voltage, 2)} V` : ''}{bat && bat.low ? ' · LOW' : ''}{bat && bat.critical ? ' · CRITICAL' : ''}</div>
+            <div className="num text-lg font-semibold leading-none text-gray-50">{bat ? (bat.external ? 'External' : `${bat.percent}%`) : '—'}</div>
+            <div className="text-terminal-muted num mt-0.5">{bat ? (bat.external ? 'USB / mains power · no battery fitted' : `${fmt(bat.voltage, 2)} V`) : ''}{bat && bat.low ? ' · low' : ''}{bat && bat.critical ? ' · critical' : ''}</div>
           </div>
         </div>
-        <dl className="kv mt-1">
-          <Row k="forecast" v={fc && fc.hoursLeft !== null ? `≈ ${hours(fc.hoursLeft)} left` : fc ? 'stable / charging' : 'learning (≥5 min)'} cls={fc && fc.hoursLeft !== null && fc.hoursLeft < 24 ? 'text-terminal-amber' : ''} />
-          <Row k="drain" v={fc ? `${fc.slopeMvPerHour} mV/h over ${fc.spanH} h` : '—'} />
+        <dl className="kv mt-2">
+          <Row k="Forecast" v={fc && fc.hoursLeft !== null ? `≈ ${hours(fc.hoursLeft)} left` : fc ? 'Stable / charging' : 'Learning (≥ 5 min)'} cls={fc && fc.hoursLeft !== null && fc.hoursLeft < 24 ? 'text-amber-300' : ''} />
+          <Row k="Drain" v={fc ? `${fc.slopeMvPerHour} mV/h over ${fc.spanH} h` : '—'} />
         </dl>
-      </div>
+      </Section>
 
-      <div className="border border-terminal-border p-2">
-        <div className="flex items-center gap-1.5 text-terminal-muted mb-1"><TransportIcon tr={t && t.transport} /> LINK · {t ? t.transport.toUpperCase() : '—'}</div>
+      <Section icon={() => <TransportIcon tr={t && t.transport} />} title={`Link · ${t ? t.transport.toUpperCase() : '—'}`}>
         <div className="flex items-center gap-2">
-          <div className="flex items-end gap-0.5 h-4">{[1, 2, 3, 4].map(i => <div key={i} className="w-1.5" style={{ height: `${i * 25}%`, background: i <= bars ? '#00ff66' : '#1f2937' }} />)}</div>
-          <span className="tabular-nums">{t ? `${t.rssi} dBm` : '—'}</span>
-          <span className="text-terminal-muted">· {node.rate} pkt/s</span>
+          <div className="flex items-end gap-0.5 h-4" aria-hidden="true">{[1, 2, 3, 4].map(i => <div key={i} className="w-1.5 rounded-[1px]" style={{ height: `${i * 25}%`, background: i <= bars ? '#22c55e' : '#243142' }} />)}</div>
+          <span className="num text-gray-200">{t ? `${t.rssi} dBm` : '—'}</span>
+          <span className="text-terminal-muted">· <span className="num">{node.rate}</span> pkt/s</span>
         </div>
-        <dl className="kv mt-1">
-          <Row k="last packet" v={ago(node.lastSeen)} />
-          <Row k="sequence" v={t ? t.seq : '—'} />
-          <Row k="packet loss" v={`${fmt(node.packetLoss, 1)} %`} cls={node.packetLoss > 5 ? 'text-terminal-amber' : ''} />
-          <Row k="reboots seen" v={node.reboots || 0} />
+        <dl className="kv mt-2">
+          <Row k="Last packet" v={ago(node.lastSeen)} />
+          <Row k="Sequence" v={t ? t.seq : '—'} />
+          <Row k="Packet loss" v={`${fmt(node.packetLoss, 1)} %`} cls={node.packetLoss > 5 ? 'text-amber-300' : ''} />
+          <Row k="Reboots seen" v={node.reboots || 0} />
         </dl>
-      </div>
+      </Section>
 
-      <div className="border border-terminal-border p-2">
-        <div className="flex items-center gap-1.5 text-terminal-muted mb-1"><Cpu className="w-3.5 h-3.5" /> NODE STATE</div>
+      <Section icon={Cpu} title="Node state">
         <dl className="kv">
-          <Row k="power mode" v={t ? t.mode : '—'} cls={live ? 'text-terminal-cyan' : 'text-terminal-green'} />
-          <Row k="edge state" v={t ? t.state : '—'} cls={t && t.state === 'EVENT' ? 'text-terminal-red' : t && t.state === 'SUSPECT' ? 'text-terminal-amber' : ''} />
-          <Row k="uptime" v={t ? uptime(t.uptimeMs) : '—'} />
-          <Row k="free heap" v={t && t.sys && t.sys.heap ? `${Math.round(t.sys.heap / 1024)} kB` : '—'} />
-          <Row k="core temp" v={t && t.sys && t.sys.temp ? `${fmt(t.sys.temp, 1)} °C` : '—'} />
-          <Row k="edge ML" v={t && t.ml ? `${t.ml.label} ${Math.round(t.ml.confidence * 100)}%` : 'n/a'} />
+          <Row k="Power mode" v={t ? titleCase(t.mode) : '—'} cls={live ? 'text-sky-300' : 'text-green-300'} />
+          <Row k="Edge state" v={t ? titleCase(t.state) : '—'} cls={t && t.state === 'EVENT' ? 'text-red-300' : t && t.state === 'SUSPECT' ? 'text-amber-300' : ''} />
+          <Row k="Uptime" v={t ? uptime(t.uptimeMs) : '—'} />
+          <Row k="Free heap" v={t && t.sys && t.sys.heap ? `${Math.round(t.sys.heap / 1024).toLocaleString()} kB` : '—'} />
+          <Row k="Core temp" v={t && t.sys && t.sys.temp ? `${fmt(t.sys.temp, 1)} °C` : '—'} />
+          <Row k="Edge ML" v={t && t.ml ? `${titleCase(t.ml.label)} ${Math.round(t.ml.confidence * 100)}%` : 'n/a'} />
         </dl>
-        <div className="grid grid-cols-2 gap-1 mt-2">
-          <Button size="sm" variant={live ? 'outline' : 'primary'} onClick={() => command(node.id, { mode: 'LIVE', liveFor: 300 })} title="Stream waveforms at 4 Hz for 5 minutes"><Zap className="w-3 h-3 mr-1" /> LIVE</Button>
-          <Button size="sm" variant={live ? 'warning' : 'outline'} onClick={() => command(node.id, { mode: 'ECO' })} title="Back to battery-saving mode">ECO</Button>
-          <Button size="sm" variant="outline" onClick={() => command(node.id, { calibrate: true })} title="Re-learn rest orientation and noise floor"><Crosshair className="w-3 h-3 mr-1" /> CALIBRATE</Button>
-          <Button size="sm" variant="danger" onClick={() => command(node.id, { deter: 10 })} title="Strobe the node LED / deterrent output for 10 s"><Siren className="w-3 h-3 mr-1" /> DETER</Button>
+        <div className="grid grid-cols-2 gap-2 mt-3">
+          <Button size="sm" variant={live ? 'warning' : 'outline'} onClick={() => command(node.id, { mode: 'ECO' })} title="Back to battery-saving mode" disabled={!live}>
+            <Leaf className="w-3.5 h-3.5" aria-hidden="true" />Eco mode
+          </Button>
+          <Button size="sm" variant={listening ? 'selected' : 'outline'} onClick={toggleListen} title="Hear the ground probe (needs live waveforms)" aria-pressed={listening}>
+            {listening ? <VolumeX className="w-3.5 h-3.5" aria-hidden="true" /> : <Volume2 className="w-3.5 h-3.5" aria-hidden="true" />}{listening ? 'Stop' : 'Listen'}
+          </Button>
         </div>
-        <Button size="sm" variant={listening ? 'warning' : 'ghost'} className="w-full mt-1" onClick={toggleListen} title="Hear the ground probe (needs LIVE waveforms)">
-          {listening ? <VolumeX className="w-3 h-3 mr-1" /> : <Volume2 className="w-3 h-3 mr-1" />} {listening ? 'STOP LISTENING' : 'LISTEN TO PROBE A'}
-        </Button>
-      </div>
+      </Section>
 
-      <div className="border border-terminal-border p-2">
-        <div className="flex items-center gap-1.5 text-terminal-muted mb-1"><Gauge className="w-3.5 h-3.5" /> SENSOR HEALTH</div>
+      <Section icon={Gauge} title="Sensor health">
         <dl className="kv">
-          <Row k="radar" v={!t ? '—' : !t.radar.ok ? 'NO DATA' : t.radar.presence ? `TARGET ${fmt(t.radar.distance, 1)} m` : 'clear'} cls={t && t.radar.presence ? 'text-terminal-red' : t && !t.radar.ok ? 'text-terminal-amber' : 'text-terminal-green'} />
-          <Row k="probe A" v={!t ? '—' : t.probes[0].ok ? `${fmt(t.probes[0].rms, 4)} g` : 'FAULT'} cls={t && !t.probes[0].ok ? 'text-terminal-red' : ''} />
-          <Row k="probe B" v={!t ? '—' : t.probes[1].ok ? `${fmt(t.probes[1].rms, 4)} g` : 'FAULT'} cls={t && !t.probes[1].ok ? 'text-terminal-red' : ''} />
-          <Row k="noise floor" v={t && t.noiseFloor !== null && t.noiseFloor !== undefined ? `${fmt(t.noiseFloor, 4)} g` : '—'} />
-          <Row k="body tilt" v={tamper ? `${fmt(tamper.tilt, 1)}°` : '—'} cls={tamper && tamper.tilt > 20 ? 'text-terminal-violet' : ''} />
-          <Row k="calibrated" v={node.calibratedAt ? ago(node.calibratedAt) : 'at boot'} />
-          <Row k="placement" v={`${node.x}, ${node.y} m · ${node.heading}°`} />
-          <Row k="probe spacing" v={`${node.spacing} m`} />
+          <Row k="Radar" v={!t ? '—' : !t.radar.ok ? 'No data' : t.radar.presence ? `Target ${fmt(t.radar.distance, 1)} m` : 'Clear'} cls={t && t.radar.presence ? 'text-red-300' : t && !t.radar.ok ? 'text-amber-300' : 'text-green-300'} />
+          <Row k="Probe A" v={!t ? '—' : t.probes[0].ok ? `${fmt(t.probes[0].rms, 4)} g` : 'Fault'} cls={t && !t.probes[0].ok ? 'text-red-300' : ''} />
+          <Row k="Probe B" v={!t ? '—' : t.probes[1].ok ? `${fmt(t.probes[1].rms, 4)} g` : 'Fault'} cls={t && !t.probes[1].ok ? 'text-red-300' : ''} />
+          <Row k="Noise floor" v={t && t.noiseFloor !== null && t.noiseFloor !== undefined ? `${fmt(t.noiseFloor, 4)} g` : '—'} />
+          <Row k="Body tilt" v={tamper ? `${fmt(tamper.tilt, 1)}°` : '—'} cls={tamper && tamper.tilt > 20 ? 'text-violet-300' : ''} />
+          <Row k="Calibrated" v={node.calibratedAt ? ago(node.calibratedAt) : 'At boot'} />
+          <Row k="Placement" v={`${node.x}, ${node.y} m · ${node.heading}°`} />
+          <Row k="Probe spacing" v={`${node.spacing} m`} />
         </dl>
         {tamper && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <Compass className="w-3.5 h-3.5 text-terminal-muted" />
-            <div className="flex-1 h-1.5 bg-terminal-black border border-terminal-border"><div className="h-full" style={{ width: `${Math.min(100, (tamper.tilt / 45) * 100)}%`, background: tamper.tilt > 20 ? '#a78bfa' : '#00ff66' }} /></div>
-            <span className="text-[10px] text-terminal-muted">tilt / 45°</span>
+          <div className="mt-2 flex items-center gap-2">
+            <Compass className="w-3.5 h-3.5 text-terminal-muted" aria-hidden="true" />
+            <div className="flex-1 h-1.5 rounded-full bg-terminal-black overflow-hidden"><div className="h-full rounded-full" style={{ width: `${Math.min(100, (tamper.tilt / 45) * 100)}%`, background: tamper.tilt > 20 ? '#a78bfa' : '#22c55e' }} /></div>
+            <span className="text-[11px] text-terminal-muted">tilt / 45°</span>
           </div>
         )}
-      </div>
+      </Section>
     </div>
   );
 };

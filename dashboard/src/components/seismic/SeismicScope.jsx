@@ -1,4 +1,8 @@
 import React, { useEffect, useRef } from 'react';
+import { useElementWidth } from '../../lib/hooks';
+
+const SANS = 'Inter, system-ui, sans-serif';
+const MONO = '"JetBrains Mono", ui-monospace, monospace';
 
 /**
  * Dual-trace ground-vibration oscilloscope.
@@ -8,12 +12,14 @@ import React, { useEffect, useRef } from 'react';
  */
 export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) => {
   const ref = useRef(null);
+  const wrap = useRef(null);
+  const width = useElementWidth(wrap, 300);
 
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 300;
+    const w = width;
     const h = height;
     if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
       canvas.width = Math.floor(w * dpr);
@@ -21,7 +27,7 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
     }
     const ctx = canvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = '#080c10';
+    ctx.fillStyle = '#0b1017';
     ctx.fillRect(0, 0, w, h);
 
     const fs = (wave && wave.fs) || 100;
@@ -29,13 +35,13 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
     const a = wave ? wave.a.slice(-n) : [];
     const b = wave ? wave.b.slice(-n) : [];
     const laneH = (h - 16) / 2;
-    const lanes = [{ arr: a, color: '#00ff66', fill: 'rgba(0,255,102,0.12)', name: 'PROBE A', y0: 0 }, { arr: b, color: '#ffb000', fill: 'rgba(255,176,0,0.12)', name: 'PROBE B', y0: laneH }];
+    const lanes = [{ arr: a, color: '#22c55e', fill: 'rgba(34,197,94,0.12)', name: 'Probe A', y0: 0 }, { arr: b, color: '#f59e0b', fill: 'rgba(245,158,11,0.12)', name: 'Probe B', y0: laneH }];
 
     // grid + time axis
-    ctx.strokeStyle = '#1f2937';
+    ctx.strokeStyle = '#1c2736';
     ctx.lineWidth = 1;
-    ctx.font = '10px "JetBrains Mono", monospace';
-    ctx.fillStyle = '#6b7280';
+    ctx.font = `10px ${MONO}`;
+    ctx.fillStyle = '#8b97a8';
     ctx.textAlign = 'center';
     for (let s = 0; s <= seconds; s++) {
       const x = (s / seconds) * w;
@@ -48,14 +54,14 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
     for (const v of a) peak = Math.max(peak, Math.abs(v));
     for (const v of b) peak = Math.max(peak, Math.abs(v));
 
-    const level = (rms) => (rms > 0.12 ? ['STRONG', '#ff3344'] : rms > 0.04 ? ['ACTIVE', '#ffb000'] : rms > 0.02 ? ['LOW', '#00e5ff'] : ['QUIET', '#00ff66']);
+    const level = (rms) => (rms > 0.12 ? ['Strong', '#ef4444'] : rms > 0.04 ? ['Active', '#f59e0b'] : rms > 0.02 ? ['Low', '#38bdf8'] : ['Quiet', '#22c55e']);
 
     for (const lane of lanes) {
       const mid = lane.y0 + laneH / 2;
       const scale = (laneH * 0.45) / peak;
-      ctx.strokeStyle = '#374151';
+      ctx.strokeStyle = '#243142';
       ctx.beginPath(); ctx.moveTo(0, mid); ctx.lineTo(w, mid); ctx.stroke();
-      ctx.strokeStyle = '#1f2937';
+      ctx.strokeStyle = '#1c2736';
       ctx.beginPath(); ctx.moveTo(0, lane.y0 + laneH); ctx.lineTo(w, lane.y0 + laneH); ctx.stroke();
       const arr = lane.arr;
       if (!arr.length) continue;
@@ -84,6 +90,7 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
       // trace
       ctx.strokeStyle = lane.color;
       ctx.lineWidth = 1.4;
+      ctx.lineJoin = 'round';
       ctx.beginPath();
       for (let i = 0; i < arr.length; i++) {
         const y = mid - arr[i] * scale;
@@ -99,7 +106,7 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
         if (arr[i] > thr && arr[i] > arr[i - 1] && arr[i] >= arr[i + 1] && i - last >= refractory) {
           last = i; steps++;
           const x = xOf(i);
-          ctx.strokeStyle = '#ffffff';
+          ctx.strokeStyle = 'rgba(229,231,235,0.8)';
           ctx.lineWidth = 1;
           ctx.beginPath(); ctx.moveTo(x, lane.y0 + 4); ctx.lineTo(x, lane.y0 + 12); ctx.stroke();
           ctx.beginPath(); ctx.moveTo(x - 3, lane.y0 + 4); ctx.lineTo(x + 3, lane.y0 + 4); ctx.stroke();
@@ -108,25 +115,38 @@ export const SeismicScope = ({ wave, height = 170, seconds = 4, label = true }) 
 
       if (label) {
         const [word, color] = level(rms);
-        ctx.font = 'bold 11px "JetBrains Mono", monospace';
-        ctx.fillStyle = lane.color; ctx.fillText(lane.name, 6, lane.y0 + 13);
-        ctx.fillStyle = color; ctx.fillText(word, 70, lane.y0 + 13);
-        ctx.font = '10px "JetBrains Mono", monospace';
+        ctx.font = `600 11px ${SANS}`;
+        ctx.fillStyle = lane.color; ctx.fillText(lane.name, 6, lane.y0 + 14);
+        ctx.fillStyle = color; ctx.fillText(word, 64, lane.y0 + 14);
+        ctx.font = `10px ${MONO}`;
         ctx.fillStyle = '#9ca3af';
-        ctx.fillText(`rms ${rms.toFixed(3)} g${steps ? ` · ${steps} step${steps > 1 ? 's' : ''}` : ''}`, 130, lane.y0 + 13);
+        ctx.fillText(`rms ${rms.toFixed(3)} g${steps ? ` · ${steps} step${steps > 1 ? 's' : ''}` : ''}`, 116, lane.y0 + 14);
       }
     }
     if (label) {
-      ctx.font = '10px "JetBrains Mono", monospace';
-      ctx.fillStyle = '#6b7280';
-      ctx.textAlign = 'right';
-      ctx.fillText(`scale ±${peak.toFixed(3)} g · ${fs} Hz`, w - 6, 12);
-      ctx.textAlign = 'left';
-      if (!a.length) { ctx.fillStyle = '#4b5563'; ctx.font = '12px "JetBrains Mono", monospace'; ctx.fillText('no waveform — press LIVE to stream the probes', 6, h / 2); }
+      if (w >= 520) {
+        ctx.font = `10px ${MONO}`;
+        ctx.fillStyle = '#8b97a8';
+        ctx.textAlign = 'right';
+        ctx.fillText(`scale ±${peak.toFixed(3)} g · ${fs} Hz`, w - 6, 13);
+        ctx.textAlign = 'left';
+      }
+      if (!a.length) {
+        ctx.fillStyle = '#8b97a8';
+        ctx.font = `12px ${SANS}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(w < 360 ? 'No waveform — use Live mode' : 'No waveform yet — switch the node to Live mode to stream the probes', w / 2, h / 2 + 4);
+        ctx.textAlign = 'left';
+      }
     }
-  }, [wave, height, seconds, label]);
+  }, [wave, height, seconds, label, width]);
 
-  return <canvas ref={ref} style={{ width: '100%', height }} className="block border border-terminal-border" />;
+  return (
+    <div ref={wrap} className="w-full min-w-0">
+      <canvas ref={ref} style={{ width: '100%', height }} className="block rounded-lg border border-terminal-border"
+        role="img" aria-label={`Ground vibration from probes A and B over the last ${seconds} seconds`} />
+    </div>
+  );
 };
 
 export default SeismicScope;

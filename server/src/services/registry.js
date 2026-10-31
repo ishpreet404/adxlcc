@@ -203,8 +203,11 @@ class Registry {
       };
     }
     t.receivedAt = now;
-    t.battery.low = t.battery.percent <= 20;
-    t.battery.critical = t.battery.percent <= 8;
+    // A Li-ion/LiPo cell never reads below ~3.0 V; a near-zero reading means nothing is on the
+    // battery divider (bench / USB-powered node), so report external power instead of "empty".
+    t.battery.external = t.battery.voltage < 2.5;
+    t.battery.low = !t.battery.external && t.battery.percent <= 20;
+    t.battery.critical = !t.battery.external && t.battery.percent <= 8;
     return t;
   }
 

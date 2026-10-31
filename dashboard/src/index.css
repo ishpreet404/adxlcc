@@ -2,54 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    @apply bg-terminal-black text-gray-200 font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    overscroll-behavior-y: none;
+  }
+  ::selection { background: rgba(56, 189, 248, 0.3); color: #fff; }
+
+  /* One consistent, visible keyboard focus style across the app. */
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid #38bdf8; outline-offset: 2px; border-radius: 6px; }
+
+  input, select, textarea { font: inherit; }
+  code { @apply font-mono text-[0.92em] text-gray-300; }
+}
+
 @layer utilities {
-  .text-shadow-terminal { text-shadow: 0 0 6px rgba(0, 255, 102, 0.4), 0 0 12px rgba(0, 255, 102, 0.15); }
-  .text-shadow-amber { text-shadow: 0 0 6px rgba(255, 176, 0, 0.4), 0 0 12px rgba(255, 176, 0, 0.15); }
-  .text-shadow-red { text-shadow: 0 0 6px rgba(255, 51, 68, 0.5), 0 0 12px rgba(255, 51, 68, 0.2); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+  .pl-safe { padding-left: env(safe-area-inset-left); }
+  .pr-safe { padding-right: env(safe-area-inset-right); }
+  /* page bottom spacing that clears the mobile tab bar (56px) + home indicator */
+  .pb-tabbar { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
+  /* horizontal page gutter that also clears notches in landscape */
+  .px-gutter { padding-left: max(1rem, env(safe-area-inset-left)); padding-right: max(1rem, env(safe-area-inset-right)); }
+  .num { font-family: theme('fontFamily.mono'); font-variant-numeric: tabular-nums; }
 }
-
-/* Subtle CRT scanlines */
-.scanlines { position: relative; }
-.scanlines::before {
-  content: " ";
-  display: block;
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.15) 50%);
-  z-index: 50;
-  background-size: 100% 4px;
-  pointer-events: none;
-  opacity: 0.3;
-}
-
-.cursor {
-  display: inline-block;
-  width: 8px;
-  height: 15px;
-  background-color: #ffb000;
-  vertical-align: middle;
-  animation: blink 1s step-start infinite;
-}
-@keyframes blink { 50% { opacity: 0; } }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: #080c10; }
-::-webkit-scrollbar-thumb { background: #222f3e; }
-::-webkit-scrollbar-thumb:hover { background: #374151; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #243142; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: #33445a; background-clip: padding-box; border: 2px solid transparent; }
 
-/* Alert flash on the whole frame */
-@keyframes alertFrame {
-  0%, 100% { box-shadow: inset 0 0 0 0 rgba(255, 51, 68, 0); }
-  50% { box-shadow: inset 0 0 0 4px rgba(255, 51, 68, 0.55); }
-}
-.alert-frame { animation: alertFrame 1.2s ease-in-out infinite; }
-
-.kv { display: grid; grid-template-columns: auto 1fr; column-gap: 0.75rem; row-gap: 0.25rem; font-size: 12px; }
-.kv dt { color: #8b949e; white-space: nowrap; }
-.kv dd { color: #e5e7eb; text-align: right; font-variant-numeric: tabular-nums; }
+.kv { display: grid; grid-template-columns: auto 1fr; column-gap: 0.75rem; row-gap: 0.35rem; font-size: 12px; }
+.kv dt { color: #8b97a8; white-space: nowrap; }
+.kv dd { color: #e5e7eb; text-align: right; font-variant-numeric: tabular-nums; min-width: 0; overflow-wrap: anywhere; }
 
 .map-node { cursor: grab; }
 .map-node:active { cursor: grabbing; }
+
+/* Loading placeholder shimmer */
+@keyframes shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.skeleton {
+  background: linear-gradient(90deg, #162030 0px, #1c2a3d 80px, #162030 160px);
+  background-size: 800px 100%;
+  animation: shimmer 1.4s linear infinite;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}

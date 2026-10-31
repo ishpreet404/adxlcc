@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useCallback } from 'react';
 import useStore from '../../store/useStore';
-import { levelHex, zoneHex, kindHex } from '../../lib/format';
+import { levelHex, zoneHex, kindHex, titleCase } from '../../lib/format';
 
 const RADAR_RANGE = 8;
 const RADAR_FOV = 120;
@@ -83,29 +83,29 @@ export const SiteMap = ({ compact = false, wall = false }) => {
 
   const gridStep = W > 60 ? 10 : 5;
   const gridLines = [];
-  for (let x = 0; x <= W; x += gridStep) gridLines.push(<line key={`gx${x}`} x1={x} y1={0} x2={x} y2={H} stroke="#1f2937" strokeWidth="0.05" />);
-  for (let y = 0; y <= H; y += gridStep) gridLines.push(<line key={`gy${y}`} x1={0} y1={H - y} x2={W} y2={H - y} stroke="#1f2937" strokeWidth="0.05" />);
+  for (let x = 0; x <= W; x += gridStep) gridLines.push(<line key={`gx${x}`} x1={x} y1={0} x2={x} y2={H} stroke="#1c2736" strokeWidth="0.05" />);
+  for (let y = 0; y <= H; y += gridStep) gridLines.push(<line key={`gy${y}`} x1={0} y1={H - y} x2={W} y2={H - y} stroke="#1c2736" strokeWidth="0.05" />);
 
   const tamperNodes = new Set(alerts.filter(a => a.kind === 'TAMPER').map(a => a.nodeId));
   const loiterNodes = new Set(alerts.filter(a => a.kind === 'LOITER').map(a => a.nodeId));
   const heatMax = activity && activity.max ? activity.max : 1;
 
   return (
-    <div className="relative w-full h-full min-h-[260px]">
-      <svg ref={svgRef} viewBox={`${-pad} ${-pad} ${W + 2 * pad} ${H + 2 * pad}`} className={`w-full h-full select-none ${zoneDraft ? 'cursor-crosshair' : ''}`}
+    <div className="relative w-full h-full min-h-[240px]">
+      <svg ref={svgRef} viewBox={`${-pad} ${-pad} ${W + 2 * pad} ${H + 2 * pad}`} className={`w-full h-full select-none ${zoneDraft ? 'cursor-crosshair' : ''} ${editMap || zoneDraft ? 'touch-none' : ''}`} role="img" aria-label={`Site map, ${W} by ${H} metres, ${list.length} nodes, ${tracks.length} tracked targets`}
         onPointerMove={onMove} onPointerUp={onUp} onPointerLeave={() => { onUp(); setHover(null); }} onClick={onClick}>
         <defs>
-          <radialGradient id="beam" cx="0" cy="0" r="1"><stop offset="0%" stopColor="#00e5ff" stopOpacity="0.35" /><stop offset="100%" stopColor="#00e5ff" stopOpacity="0.02" /></radialGradient>
-          <radialGradient id="beamHot" cx="0" cy="0" r="1"><stop offset="0%" stopColor="#ff3344" stopOpacity="0.45" /><stop offset="100%" stopColor="#ff3344" stopOpacity="0.03" /></radialGradient>
-          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ff3344" /></marker>
+          <radialGradient id="beam" cx="0" cy="0" r="1"><stop offset="0%" stopColor="#38bdf8" stopOpacity="0.35" /><stop offset="100%" stopColor="#38bdf8" stopOpacity="0.02" /></radialGradient>
+          <radialGradient id="beamHot" cx="0" cy="0" r="1"><stop offset="0%" stopColor="#ef4444" stopOpacity="0.45" /><stop offset="100%" stopColor="#ef4444" stopOpacity="0.03" /></radialGradient>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ef4444" /></marker>
         </defs>
 
-        <rect x={0} y={0} width={W} height={H} fill="#0a1017" stroke="#374151" strokeWidth="0.15" />
+        <rect x={0} y={0} width={W} height={H} fill="#0d141c" stroke="#243142" strokeWidth="0.15" rx="0.4" />
         {gridLines}
 
         {/* heat map */}
         {layers.heat && activity && activity.cells.map(c => (
-          <rect key={`h${c.x},${c.y}`} x={c.x} y={H - c.y - 1} width={1} height={1} fill="#ff3344" fillOpacity={0.08 + 0.55 * Math.sqrt(c.n / heatMax)} />
+          <rect key={`h${c.x},${c.y}`} x={c.x} y={H - c.y - 1} width={1} height={1} fill="#ef4444" fillOpacity={0.08 + 0.55 * Math.sqrt(c.n / heatMax)} />
         ))}
 
         {/* zones */}
@@ -116,23 +116,23 @@ export const SiteMap = ({ compact = false, wall = false }) => {
           return (
             <g key={z.id}>
               <polygon points={z.points.map(p => `${p[0]},${H - p[1]}`).join(' ')} fill={col} fillOpacity="0.08" stroke={col} strokeOpacity="0.7" strokeWidth="0.12" strokeDasharray={z.type === 'allowed' ? '0.5 0.3' : undefined} />
-              <text x={cx} y={H - cy} fontSize={0.9 * fs} fill={col} fillOpacity="0.9" textAnchor="middle" fontWeight="bold">{z.name.toUpperCase()}</text>
+              <text x={cx} y={H - cy} fontSize={0.9 * fs} fill={col} fillOpacity="0.9" textAnchor="middle" fontWeight="600">{z.name}</text>
               <text x={cx} y={H - cy + 1} fontSize={0.6 * fs} fill={col} fillOpacity="0.7" textAnchor="middle">{z.type}</text>
             </g>
           );
         })}
         {zoneDraft && zoneDraft.points.length > 0 && (
           <g>
-            <polyline points={[...zoneDraft.points, hover ? [hover.x, hover.y] : zoneDraft.points[0]].map(p => `${p[0]},${H - p[1]}`).join(' ')} fill="#ffb000" fillOpacity="0.12" stroke="#ffb000" strokeWidth="0.12" strokeDasharray="0.4 0.25" />
-            {zoneDraft.points.map((p, i) => <circle key={i} cx={p[0]} cy={H - p[1]} r={0.3} fill="#ffb000" />)}
+            <polyline points={[...zoneDraft.points, hover ? [hover.x, hover.y] : zoneDraft.points[0]].map(p => `${p[0]},${H - p[1]}`).join(' ')} fill="#f59e0b" fillOpacity="0.12" stroke="#f59e0b" strokeWidth="0.12" strokeDasharray="0.4 0.25" />
+            {zoneDraft.points.map((p, i) => <circle key={i} cx={p[0]} cy={H - p[1]} r={0.3} fill="#f59e0b" />)}
           </g>
         )}
 
-        <text x={0.4} y={H - 0.5} fontSize={0.9 * fs} fill="#4b5563">0,0</text>
-        <text x={W - 3.5} y={0.9} fontSize={0.9 * fs} fill="#4b5563">{W}×{H} m</text>
+        <text x={0.4} y={H - 0.5} fontSize={0.9 * fs} fill="#5b6778">0,0</text>
+        <text x={W - 0.4} y={0.9} fontSize={0.9 * fs} fill="#5b6778" textAnchor="end">{W}×{H} m</text>
         <line x1={W - 11} y1={H - 1} x2={W - 1} y2={H - 1} stroke="#6b7280" strokeWidth="0.15" />
         <text x={W - 7.2} y={H - 1.4} fontSize={0.8 * fs} fill="#6b7280">10 m</text>
-        <text x={-1.4} y={1.2} fontSize={1.1 * fs} fill="#6b7280" fontWeight="bold">N↑</text>
+        <text x={-1.4} y={1.2} fontSize={1.1 * fs} fill="#8b97a8" fontWeight="600">N↑</text>
 
         {/* nodes */}
         {list.map(n => {
@@ -146,7 +146,7 @@ export const SiteMap = ({ compact = false, wall = false }) => {
           const ringA = Math.min(6, rmsA * 40), ringB = Math.min(6, rmsB * 40);
           const tamper = tamperNodes.has(n.id) || (n.latest && n.latest.tamper && n.latest.tamper.flag);
           const loiter = loiterNodes.has(n.id);
-          const color = offline ? '#6b7280' : tamper ? kindHex('TAMPER') : levelHex(lvl);
+          const color = offline ? '#5b6778' : tamper ? kindHex('TAMPER') : levelHex(lvl);
           const selected = n.id === selectedId;
           const pa = n.probes ? n.probes.a : null, pb = n.probes ? n.probes.b : null;
           const pos = n.position;
@@ -155,26 +155,26 @@ export const SiteMap = ({ compact = false, wall = false }) => {
             <g key={n.id} className="map-node" onPointerDown={(e) => onNodeDown(e, n.id)}>
               {layers.beams && !offline && (
                 <path d={arcPath(cx, cy, RADAR_RANGE, n.heading - RADAR_FOV / 2, n.heading + RADAR_FOV / 2)}
-                  fill={radarHot ? 'url(#beamHot)' : 'url(#beam)'} stroke={radarHot ? '#ff3344' : '#00e5ff'} strokeOpacity={live ? 0.5 : 0.25} strokeWidth="0.08" strokeDasharray={live ? undefined : '0.4 0.3'} />
+                  fill={radarHot ? 'url(#beamHot)' : 'url(#beam)'} stroke={radarHot ? '#ef4444' : '#38bdf8'} strokeOpacity={live ? 0.5 : 0.25} strokeWidth="0.08" strokeDasharray={live ? undefined : '0.4 0.3'} />
               )}
               {radarHot && radar.distance > 0 && (
                 <path d={`M ${polar(cx, cy, radar.distance, n.heading - RADAR_FOV / 2).join(' ')} A ${radar.distance} ${radar.distance} 0 0 0 ${polar(cx, cy, radar.distance, n.heading + RADAR_FOV / 2).join(' ')}`}
-                  fill="none" stroke="#ff3344" strokeWidth="0.12" strokeDasharray="0.4 0.25" />
+                  fill="none" stroke="#ef4444" strokeWidth="0.12" strokeDasharray="0.4 0.25" />
               )}
-              {!offline && pa && ringA > 0.3 && <circle cx={pa.x} cy={H - pa.y} r={ringA} fill="none" stroke="#ffb000" strokeOpacity={Math.min(0.9, 0.2 + rmsA * 4)} strokeWidth="0.1" />}
-              {!offline && pb && ringB > 0.3 && <circle cx={pb.x} cy={H - pb.y} r={ringB} fill="none" stroke="#ffb000" strokeOpacity={Math.min(0.9, 0.2 + rmsB * 4)} strokeWidth="0.1" />}
+              {!offline && pa && ringA > 0.3 && <circle cx={pa.x} cy={H - pa.y} r={ringA} fill="none" stroke="#f59e0b" strokeOpacity={Math.min(0.9, 0.2 + rmsA * 4)} strokeWidth="0.1" />}
+              {!offline && pb && ringB > 0.3 && <circle cx={pb.x} cy={H - pb.y} r={ringB} fill="none" stroke="#f59e0b" strokeOpacity={Math.min(0.9, 0.2 + rmsB * 4)} strokeWidth="0.1" />}
               {pa && pb && <line x1={pa.x} y1={H - pa.y} x2={pb.x} y2={H - pb.y} stroke="#9ca3af" strokeWidth="0.08" />}
-              {pa && <g><circle cx={pa.x} cy={H - pa.y} r={0.32} fill={rmsA > 0.02 ? '#ffb000' : '#374151'} stroke="#e5e7eb" strokeWidth="0.06" /><text x={pa.x} y={H - pa.y + 0.22} fontSize="0.55" fill="#000" textAnchor="middle" fontWeight="bold">A</text></g>}
-              {pb && <g><circle cx={pb.x} cy={H - pb.y} r={0.32} fill={rmsB > 0.02 ? '#ffb000' : '#374151'} stroke="#e5e7eb" strokeWidth="0.06" /><text x={pb.x} y={H - pb.y + 0.22} fontSize="0.55" fill="#000" textAnchor="middle" fontWeight="bold">B</text></g>}
+              {pa && <g><circle cx={pa.x} cy={H - pa.y} r={0.32} fill={rmsA > 0.02 ? '#f59e0b' : '#374151'} stroke="#e5e7eb" strokeWidth="0.06" /><text x={pa.x} y={H - pa.y + 0.22} fontSize="0.55" fill="#000" textAnchor="middle" fontWeight="bold">A</text></g>}
+              {pb && <g><circle cx={pb.x} cy={H - pb.y} r={0.32} fill={rmsB > 0.02 ? '#f59e0b' : '#374151'} stroke="#e5e7eb" strokeWidth="0.06" /><text x={pb.x} y={H - pb.y + 0.22} fontSize="0.55" fill="#000" textAnchor="middle" fontWeight="bold">B</text></g>}
               <line x1={cx} y1={cy} x2={polar(cx, cy, 1.6, n.heading)[0]} y2={polar(cx, cy, 1.6, n.heading)[1]} stroke={color} strokeWidth="0.14" />
               {(lvl === 'INTRUSION' || tamper) && !offline && <circle cx={cx} cy={cy} r={1.2} fill="none" stroke={color} strokeWidth="0.12" className="animate-ping" style={{ transformOrigin: `${cx}px ${cy}px` }} />}
-              <rect x={cx - 0.6} y={cy - 0.6} width={1.2} height={1.2} fill="#0c1219" stroke={color} strokeWidth={selected ? 0.22 : 0.12} transform={`rotate(45 ${cx} ${cy})`} />
+              <rect x={cx - 0.6} y={cy - 0.6} width={1.2} height={1.2} fill="#111821" stroke={color} strokeWidth={selected ? 0.22 : 0.12} transform={`rotate(45 ${cx} ${cy})`} />
               <circle cx={cx} cy={cy} r={0.22} fill={color} />
               {tamper && <text x={cx + 0.9} y={cy - 0.7} fontSize="1.1" fill={kindHex('TAMPER')}>⚠</text>}
               {loiter && !tamper && <text x={cx + 0.9} y={cy - 0.7} fontSize="1" fill={kindHex('LOITER')}>⏱</text>}
-              {layers.labels && <text x={cx} y={cy - 1.2} fontSize={0.85 * fs} fill={selected ? '#fff' : '#d1d5db'} textAnchor="middle" fontWeight="bold">{n.name}</text>}
+              {layers.labels && <text x={cx} y={cy - 1.2} fontSize={0.85 * fs} fill={selected ? '#fff' : '#d1d5db'} textAnchor="middle" fontWeight="600">{n.name}</text>}
               {layers.labels && <text x={cx} y={cy + 1.9} fontSize={0.65 * fs} fill={color} textAnchor="middle">
-                {offline ? n.status : tamper ? 'TAMPER' : `${n.simulated ? 'SIM · ' : ''}${lvl}${n.latest && n.latest.battery.low ? ' · LOW BAT' : ''}`}
+                {offline ? titleCase(n.status) : tamper ? 'Tamper' : `${n.simulated ? 'SIM · ' : ''}${titleCase(lvl)}${n.latest && n.latest.battery.low ? ' · low battery' : ''}`}
               </text>}
               {pos && !offline && (
                 <g>
@@ -198,26 +198,26 @@ export const SiteMap = ({ compact = false, wall = false }) => {
               )}
               {layers.predict && t.predicted && (
                 <g>
-                  <line x1={tx} y1={ty} x2={t.predicted.x} y2={H - t.predicted.y} stroke="#ff3344" strokeWidth="0.12" strokeOpacity="0.8" markerEnd="url(#arrow)" />
+                  <line x1={tx} y1={ty} x2={t.predicted.x} y2={H - t.predicted.y} stroke="#ef4444" strokeWidth="0.12" strokeOpacity="0.8" markerEnd="url(#arrow)" />
                   <text x={t.predicted.x} y={H - t.predicted.y - 0.5} fontSize={0.6 * fs} fill="#fca5a5" textAnchor="middle">+5 s</text>
                 </g>
               )}
               {layers.predict && t.eta && nodes[t.eta.nodeId] && (
                 <g>
-                  <line x1={tx} y1={ty} x2={nodes[t.eta.nodeId].x} y2={H - nodes[t.eta.nodeId].y} stroke="#00e5ff" strokeWidth="0.06" strokeDasharray="0.2 0.3" />
-                  <text x={(tx + nodes[t.eta.nodeId].x) / 2} y={(ty + H - nodes[t.eta.nodeId].y) / 2 - 0.3} fontSize={0.6 * fs} fill="#00e5ff" textAnchor="middle">ETA {t.eta.etaS}s → {t.eta.nodeName}</text>
+                  <line x1={tx} y1={ty} x2={nodes[t.eta.nodeId].x} y2={H - nodes[t.eta.nodeId].y} stroke="#38bdf8" strokeWidth="0.06" strokeDasharray="0.2 0.3" />
+                  <text x={(tx + nodes[t.eta.nodeId].x) / 2} y={(ty + H - nodes[t.eta.nodeId].y) / 2 - 0.3} fontSize={0.6 * fs} fill="#38bdf8" textAnchor="middle">ETA {t.eta.etaS}s → {t.eta.nodeName}</text>
                 </g>
               )}
               <circle cx={tx} cy={ty} r={1.1} fill="none" stroke={color} strokeWidth="0.08" className="animate-ping" style={{ transformOrigin: `${tx}px ${ty}px` }} />
               <line x1={tx - 0.9} y1={ty} x2={tx + 0.9} y2={ty} stroke={color} strokeWidth="0.1" />
               <line x1={tx} y1={ty - 0.9} x2={tx} y2={ty + 0.9} stroke={color} strokeWidth="0.1" />
               <circle cx={tx} cy={ty} r={0.45} fill="none" stroke={color} strokeWidth="0.12" />
-              {t.method === 'triangulated' && <circle cx={tx} cy={ty} r={0.7} fill="none" stroke="#00ff66" strokeWidth="0.08" />}
+              {t.method === 'triangulated' && <circle cx={tx} cy={ty} r={0.7} fill="none" stroke="#22c55e" strokeWidth="0.08" />}
               <text x={tx} y={ty - 1.3} fontSize={0.7 * fs} fill={color} textAnchor="middle" fontWeight="bold">
-                {t.targetClass === 'VEHICLE' ? '🚗' : t.running ? '🏃' : '🚶'} {t.id} · {Math.round(t.probability * 100)}%{t.speed > 0.15 ? ` · ${t.speed} m/s` : ''}
+                {t.targetClass === 'VEHICLE' ? 'Vehicle' : t.running ? 'Running' : 'Person'} {t.id} · {Math.round(t.probability * 100)}%{t.speed > 0.15 ? ` · ${t.speed} m/s` : ''}
               </text>
               <text x={tx} y={ty + 1.9} fontSize={0.55 * fs} fill="#9ca3af" textAnchor="middle">
-                {t.method === 'triangulated' ? 'TRIANGULATED ' : 'ESTIMATED '}±{t.sigmaM} m{t.zone ? ` · ${t.zone.name}` : ''}
+                {t.method === 'triangulated' ? 'Triangulated ' : 'Estimated '}±{t.sigmaM} m{t.zone ? ` · ${t.zone.name}` : ''}
               </text>
             </g>
           );
@@ -227,19 +227,22 @@ export const SiteMap = ({ compact = false, wall = false }) => {
           <g key={`gt${i}`} opacity="0.85">
             <circle cx={a.x} cy={H - a.y} r={0.35} fill="none" stroke="#a78bfa" strokeWidth="0.1" />
             <circle cx={a.x} cy={H - a.y} r={0.1} fill="#a78bfa" />
-            <text x={a.x + 0.6} y={H - a.y + 0.25} fontSize={0.6 * fs} fill="#a78bfa">true {a.type.toLowerCase()}{a.moving ? '' : ' (still)'}</text>
+            <text x={a.x + 0.6} y={H - a.y + 0.25} fontSize={0.6 * fs} fill="#a78bfa">True {a.type.toLowerCase()}{a.moving ? '' : ' (still)'}</text>
           </g>
         ))}
       </svg>
 
       {!compact && !wall && (
-        <div className="absolute left-2 bottom-2 text-[10px] text-terminal-muted bg-black/60 border border-terminal-border px-2 py-1 space-y-0.5">
-          <div><span className="text-terminal-cyan">◢</span> radar beam · <span className="text-terminal-amber">○</span> probe energy · <span className="text-terminal-red">✚</span> target · <span className="text-terminal-green">◎</span> triangulated · <span className="text-terminal-violet">◌</span> ground truth</div>
-          {editMap && !zoneDraft && <div className="text-terminal-amber">PLACE MODE: drag nodes</div>}
-          {zoneDraft && <div className="text-terminal-amber">ZONE MODE: click vertices ({zoneDraft.points.length}) · finish in the panel</div>}
+        <div className="absolute left-2 bottom-2 right-2 sm:right-auto text-[11px] text-terminal-muted bg-terminal-black/85 border border-terminal-border rounded-md px-2 py-1 space-y-0.5 pointer-events-none">
+          <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+            <span><span className="text-sky-400">◢</span> Radar beam</span><span><span className="text-amber-400">○</span> Probe energy</span><span><span className="text-red-400">✚</span> Target</span><span><span className="text-green-400">◎</span> Triangulated</span>
+            {sim.actors.length > 0 && <span><span className="text-violet-300">◌</span> Ground truth</span>}
+          </div>
+          {editMap && !zoneDraft && <div className="text-amber-300">Place mode: drag nodes to where they stand</div>}
+          {zoneDraft && <div className="text-amber-300">Zone mode: click to add vertices ({zoneDraft.points.length}) · finish in the panel</div>}
         </div>
       )}
-      {hover && (editMap || zoneDraft) && <div className="absolute right-2 bottom-2 text-[10px] text-terminal-muted bg-black/60 border border-terminal-border px-2 py-0.5 tabular-nums">{hover.x.toFixed(1)}, {hover.y.toFixed(1)} m</div>}
+      {hover && (editMap || zoneDraft) && <div className="hidden sm:block absolute right-2 bottom-2 text-[11px] text-terminal-muted bg-terminal-black/85 border border-terminal-border rounded-md px-2 py-0.5 num pointer-events-none">{hover.x.toFixed(1)}, {hover.y.toFixed(1)} m</div>}
     </div>
   );
 };

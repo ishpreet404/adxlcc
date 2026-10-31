@@ -1,9 +1,12 @@
 import React, { useEffect, useRef } from 'react';
-import { Volume2, VolumeX } from 'lucide-react';
+import { Volume2, VolumeX, BellRing } from 'lucide-react';
 import useStore from '../../store/useStore';
 
-/** Web-Audio siren: two-tone while any real (non-test) alert is ACTIVE; tamper gets a faster pattern. */
-export const AudioAlarm = () => {
+/**
+ * Web-Audio siren: two-tone while any real (non-test) alert is ACTIVE; tamper gets a faster pattern.
+ * Renders the mute toggle (`compact` = icon only).
+ */
+export const AudioAlarm = ({ compact = false }) => {
   const alerts = useStore(s => s.alerts);
   const muted = useStore(s => s.muted);
   const setMuted = useStore(s => s.setMuted);
@@ -22,7 +25,7 @@ export const AudioAlarm = () => {
         if (!AC) return;
         if (!ctxRef.current) ctxRef.current = new AC();
         const ctx = ctxRef.current;
-        if (ctx.state === 'suspended') ctx.resume();
+        if (ctx.state === 'suspended') ctx.resume().catch(() => {});
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'square';
@@ -39,13 +42,14 @@ export const AudioAlarm = () => {
     return stop;
   }, [muted, count, tamper]);
 
+  const label = muted ? 'Alarm sound muted — click to unmute (M)' : count > 0 ? `Alarm sounding for ${count} alert${count > 1 ? 's' : ''} — click to mute (M)` : 'Alarm sound on — click to mute (M)';
+  const Icon = muted ? VolumeX : count > 0 ? BellRing : Volume2;
+  const tone = muted ? 'text-terminal-muted border-terminal-border' : count > 0 ? 'text-red-300 border-terminal-red/40 bg-terminal-red/10' : 'text-gray-300 border-terminal-border';
   return (
-    <button onClick={() => setMuted(!muted)} title={muted ? 'Unmute siren (M)' : 'Mute siren (M)'}
-      className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-mono font-bold uppercase border transition-colors ${
-        muted ? 'border-gray-700 text-gray-500 bg-black/40' : count > 0 ? 'border-terminal-red text-terminal-red bg-terminal-red/10 animate-pulse' : 'border-terminal-green text-terminal-green bg-terminal-green/10'
-      }`}>
-      {muted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-      <span className="hidden sm:inline">{muted ? 'SIREN OFF' : count > 0 ? `SIREN ×${count}` : 'SIREN ARMED'}</span>
+    <button type="button" onClick={() => setMuted(!muted)} aria-label={label} title={label} aria-pressed={muted}
+      className={`inline-flex items-center justify-center gap-1.5 rounded-lg border transition-colors hover:bg-white/5 ${compact ? 'w-10 h-10' : 'h-8 px-3 text-xs font-medium'} ${tone}`}>
+      <Icon className="w-4 h-4" aria-hidden="true" />
+      {!compact && <span>{muted ? 'Muted' : count > 0 ? `Alarm ×${count}` : 'Sound on'}</span>}
     </button>
   );
 };

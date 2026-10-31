@@ -15,6 +15,26 @@ async function request(path, options = {}) {
   return data;
 }
 
+/**
+ * Like request() but never throws: resolves to the parsed body, or { ok: false, error } on
+ * network / HTTP / parse failure. Used where the UI shows the server's own error message.
+ */
+async function raw(path, options = {}) {
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+      ...options
+    });
+    let data = null;
+    try { data = await res.json(); } catch { /* empty / non-JSON body */ }
+    if (!data) return { ok: false, error: `HTTP ${res.status}`, status: res.status };
+    if (!res.ok && data.ok !== false) return { ...data, ok: false, error: data.error || `HTTP ${res.status}`, status: res.status };
+    return data;
+  } catch (e) {
+    return { ok: false, error: e.message || 'network error' };
+  }
+}
+
 const post = (path, body) => request(path, { method: 'POST', body: JSON.stringify(body || {}) });
 const put = (path, body) => request(path, { method: 'PUT', body: JSON.stringify(body || {}) });
 const del = (path) => request(path, { method: 'DELETE' });
@@ -68,15 +88,21 @@ export const api = {
   recordStop: (nodeId) => post('/api/system/record/stop', { nodeId }),
   recordStatus: (nodeId) => request(`/api/system/record/${nodeId}`),
 
-  // Gemini operator endpoints. ask() returns the raw result (ok:false carries an error
+  // Deployment / mission profiles (use-case presets).
+  profile: () => request('/api/system/profile'),
+  setProfile: (id) => post('/api/system/profile', { id }),
+
+  // Gemini operator endpoints. These return the raw result (ok:false carries an error
   // message to display, rather than throwing like request()).
   aiStatus: () => request('/api/ai/status'),
-  ask: async (question) => {
-    const res = await fetch(`${BASE_URL}/api/ai/ask`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question })
-    });
-    try { return await res.json(); } catch { return { ok: false, error: `HTTP ${res.status}` }; }
-  }
+  ask: (question) => raw('/api/ai/ask', { method: 'POST', body: JSON.stringify({ question }) }),
+  aiFeed: () => raw('/api/ai/feed'),
+  aiBrief: (minutes = 60) => raw('/api/ai/brief', { method: 'POST', body: JSON.stringify({ minutes }) }),
+
+  // TigerData (TimescaleDB) analytics.
+  tigerStats: () => raw('/api/tiger/stats'),
+  tigerActivity: (minutes = 60) => raw(`/api/tiger/activity?minutes=${minutes}`),
+  tigerAlertsTimeline: (hours = 6) => raw(`/api/tiger/alerts-timeline?hours=${hours}`)
 };
 
 export default api;

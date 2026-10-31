@@ -1,17 +1,25 @@
 import React from 'react';
 
-export const Card = ({ title, children, className = '', headerAction = null }) => {
-  return (
-    <div className={`bg-terminal-dark border border-terminal-border rounded-none shadow-lg overflow-hidden flex flex-col h-full ${className}`}>
-      {title && (
-        <div className="flex items-center justify-between px-4 py-2.5 bg-terminal-surface border-b border-terminal-border font-mono text-xs uppercase tracking-wider text-terminal-muted flex-shrink-0">
-          <span className="font-bold text-gray-200 tracking-wider truncate mr-2">{title}</span>
-          {headerAction && <div className="flex-shrink-0">{headerAction}</div>}
+/**
+ * Surface container. `title` may be a string or node; `icon` is a lucide component shown before it.
+ * `flush` removes body padding (for tables / lists that run edge-to-edge).
+ */
+export const Card = ({ title, subtitle, icon: Icon, children, className = '', bodyClassName = '', headerAction = null, flush = false, id }) => (
+  <section id={id} className={`bg-terminal-dark border border-terminal-border rounded-xl shadow-card flex flex-col min-w-0 overflow-hidden ${className}`}>
+    {title && (
+      <header className="flex items-center justify-between gap-3 px-4 py-3 border-b border-terminal-border bg-terminal-surface/40 flex-shrink-0 min-h-[48px]">
+        <div className="min-w-0 flex items-center gap-2">
+          {Icon && <Icon className="w-4 h-4 text-terminal-muted flex-shrink-0" aria-hidden="true" />}
+          <div className="min-w-0">
+            <h2 className="text-[13px] font-semibold text-gray-100 leading-tight truncate">{title}</h2>
+            {subtitle && <p className="text-[11px] text-terminal-muted leading-tight mt-0.5 truncate">{subtitle}</p>}
+          </div>
         </div>
-      )}
-      <div className="p-4 flex-1 flex flex-col">{children}</div>
-    </div>
-  );
-};
+        {headerAction && <div className="flex-shrink-0 flex items-center gap-1.5">{headerAction}</div>}
+      </header>
+    )}
+    <div className={`${flush ? '' : 'p-4'} flex-1 flex flex-col min-w-0 ${bodyClassName}`}>{children}</div>
+  </section>
+);
 
 export default Card;
