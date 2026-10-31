@@ -13,3 +13,6 @@ server/data/*.ndjson
 server/data/*.tmp
 ml/data/*.jsonl
 tools/package-lock.json
+
+# Unrelated course notes (kept locally, not part of the project)
+web-mining-*
