@@ -221,6 +221,15 @@ static void handleConsole() {
     else if (line.startsWith("cfg server ")) { serverCfg = line.substring(11); serverCfg.trim(); saveKV("url", serverCfg); serverUrl = serverCfg.equalsIgnoreCase("auto") ? String() : serverCfg; Serial.println("saved"); }
     else if (line == "cfg show" || line == "cfg") { Serial.printf("ssid:%s server:%s resolved:%s link:%s\n", wifiSsid.c_str(), serverCfg.c_str(), serverUrl.length() ? serverUrl.c_str() : "(discovering)", linkUp ? "up" : "down"); }
     else if (line == "reboot") ESP.restart();
+    else if (line == "scan") {
+      Serial.println("[scan] 2.4 GHz networks the base station can see (ESP32 cannot see 5 GHz):");
+      int n = WiFi.scanNetworks();
+      for (int i = 0; i < n; i++)
+        Serial.printf("  %2d) rssi %4d  ch %2d  %s%s\n", i, WiFi.RSSI(i), WiFi.channel(i),
+                      WiFi.SSID(i).c_str(), WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? " (open)" : "");
+      if (n == 0) Serial.println("  (none found)");
+      WiFi.scanDelete();
+    }
     line = "";
   }
 }
@@ -246,9 +255,25 @@ void setup() {
   }
 }
 
+static uint32_t lastWifiTry = 0;
+static bool wasConnected = false;
 void loop() {
   handleConsole();
-  if (WiFi.status() == WL_CONNECTED) discoveryPump();
+  bool conn = WiFi.status() == WL_CONNECTED;
+  // Auto-reconnect: if WiFi drops (or never joined), retry every 10 s without a reboot.
+  if (!conn && millis() - lastWifiTry > 10000 && wifiSsid.length()) {
+    lastWifiTry = millis();
+    WiFi.disconnect(); WiFi.mode(WIFI_STA); WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
+  }
+  // (Re)open the UDP discovery socket only once the link is actually up, else parsePacket
+  // spams "could not receive data: 9" on a socket bound before WiFi existed.
+  if (conn && !wasConnected) {
+    Serial.printf("[base] WiFi up, ip %s\n", WiFi.localIP().toString().c_str());
+    udp.stop(); udp.begin(DISCOVERY_PORT); discoverPoke();
+    splash("finding server...");
+  }
+  wasConnected = conn;
+  if (conn) discoveryPump();
   uint32_t now = millis();
   if (now - lastPoll >= POLL_INTERVAL_MS) {
     lastPoll = now;
