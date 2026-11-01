@@ -92,6 +92,7 @@ Networking runs on its own FreeRTOS task, and the panel reads the compact
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Gemini; `gemini-flash-lite-latest` has the most generous free tier. |
 | `GEMINI_SIM_PER_HOUR` | Gemini narrations for simulated alerts per hour (real alerts always narrated). |
 | `BASESTATION_SHOW_SIM` | Show simulated items on the OLED panel (default off). |
+| `SENSITIVITY` | Detection sensitivity for real nodes (simulated nodes keep the strict rules). `normal`: two sensors must agree, 0.02 g floor. `ultra` (default): each node first calibrates its quiet level as the median of 80 packets (~20 s in LIVE; footsteps alarm only after that, radar targets alarm immediately), then a step 1.4× above it, a peak 1.5× its quiet peak, or any radar target alerts on one packet at ~0.95; nodes are held in LIVE. `max`: 120-packet (~30 s) calibration, then 1.15× / 1.2×, catches light steps and taps, more false alarms. Switch or **Recalibrate** in **Settings → Detection sensitivity**, or `POST /api/system/sensitivity {"level":"max"}` / `{"recalibrate":true}`. A node's Calibrate command also restarts its quiet-level calibration. |
 
 ## Sirens, panic and resilience
 
