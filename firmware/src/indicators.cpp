@@ -60,7 +60,8 @@ void Indicators::setMode(Mode m) {
 void Indicators::setBearing(float thetaDeg, bool valid) { _theta = thetaDeg; _thetaValid = valid; }
 
 void Indicators::deterrent(uint32_t seconds) {
-    _deterUntil = millis() + seconds * 1000UL;
+    _deterStart = millis();
+    _deterUntil = _deterStart + seconds * 1000UL;
     if (PIN_DETERRENT >= 0) { pinMode(PIN_DETERRENT, OUTPUT); digitalWrite(PIN_DETERRENT, HIGH); }
 }
 
@@ -100,7 +101,11 @@ void Indicators::update() {
     if (now - _lastFrame < 50) return;        // 20 fps animation
     _lastFrame = now;
     _frame++;
-    if (deterrentActive()) buzzer((_frame / 5) % 2 == 0, 2800); // 4 beeps/s while deterring
+    if (deterrentActive()) {
+        // exactly SIREN_BEEPS beeps, then quiet while the ring keeps strobing
+        uint32_t t = now - _deterStart, period = SIREN_BEEP_ON_MS + SIREN_BEEP_OFF_MS;
+        buzzer(t / period < SIREN_BEEPS && t % period < SIREN_BEEP_ON_MS, 2800);
+    }
     render();
 }
 

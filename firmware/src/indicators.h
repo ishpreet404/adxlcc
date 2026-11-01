@@ -31,6 +31,7 @@ private:
     float _theta = 0;
     bool _thetaValid = false;
     uint32_t _deterUntil = 0;
+    uint32_t _deterStart = 0;           // when the current siren started (beep counter)
     uint32_t _buzzUntil = 0;
     uint32_t _lastFrame = 0;
     uint16_t _frame = 0;

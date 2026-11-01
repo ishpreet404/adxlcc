@@ -214,7 +214,7 @@ static void leaveActive() {
     state = State::IDLE;
     radar.power(false);
     if (!extPower) transport.disconnect();   // mains-powered nodes keep the link up
-    configureSampling(FS_ECO_HZ, true);
+    configureSampling(FS_ECO_HZ, ECO_ADXL_LOW_POWER);
     haveFeatures = false; haveMl = false;
     led(false);
     indicators.setMode(Indicators::Mode::ECO);

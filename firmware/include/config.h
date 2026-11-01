@@ -91,9 +91,12 @@
 #define LP_CUTOFF_HZ           40.0f
 #define STA_SECONDS            0.25f
 #define LTA_SECONDS            4.0f
-#define STA_LTA_TRIGGER        3.0f
-#define STA_LTA_RELEASE        1.6f
-#define RMS_TRIGGER_G          0.030f
+// Ultra-sensitive: tuned for probes on a floor/table/wall where a footstep is only ~0.005-0.02 g
+// over a ~0.003 g background (was 3.0 / 1.6 / 0.030 g for spikes driven into soil).
+#define STA_LTA_TRIGGER        1.8f
+#define STA_LTA_RELEASE        1.25f
+#define RMS_TRIGGER_G          0.004f
+#define ECO_ADXL_LOW_POWER     0      // 1 = ADXL low-power bit in ECO (saves ~50 uA, ~2x noisier)
 
 // ---------------------------------------------------------------- power profile
 #define ECO_LIGHT_SLEEP_MS     1000
@@ -109,6 +112,9 @@
 // ---------------------------------------------------------------- tamper / deterrent
 #define TAMPER_TILT_DEG        20.0f
 #define TAMPER_SHOCK_G         1.8f
+#define SIREN_BEEPS            5      // siren = this many beeps (the ring strobes for the full alarm time)
+#define SIREN_BEEP_ON_MS       250
+#define SIREN_BEEP_OFF_MS      200
 #define PIN_DETERRENT          -1     // extra relay/strobe output during a deterrent burst (the ring + buzzer are always used)
 
 // ---------------------------------------------------------------- misc
