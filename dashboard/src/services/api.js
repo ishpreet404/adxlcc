@@ -1,9 +1,20 @@
 /** REST client for the central server. */
 const configured = (import.meta.env.VITE_APP_API_BASE_URL || '').replace(/\/+$/, '');
 export const BASE_URL = configured; // '' → same origin (Vite proxy / server-hosted build)
+// Online demo build (VITE_DEMO=1): the server pipeline runs in the page, see dashboard/demo/.
+export const DEMO = import.meta.env.VITE_DEMO === '1';
+
+/** fetch() against the server, or against the in-page demo server. */
+async function call(path, options) {
+  if (!DEMO) return fetch(`${BASE_URL}${path}`, options);
+  const { default: demo } = await import('../demo/server.gen.js');
+  demo.start();
+  const { status, data } = await demo.handle(options.method || 'GET', path, options.body ? JSON.parse(options.body) : undefined);
+  return { ok: status < 400, status, json: async () => (data == null ? Promise.reject() : JSON.parse(JSON.stringify(data))) };
+}
 
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await call(path, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options
   });
@@ -21,7 +32,7 @@ async function request(path, options = {}) {
  */
 async function raw(path, options = {}) {
   try {
-    const res = await fetch(`${BASE_URL}${path}`, {
+    const res = await call(path, {
       headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
       ...options
     });

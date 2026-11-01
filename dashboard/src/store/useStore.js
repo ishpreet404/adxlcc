@@ -74,7 +74,7 @@ export const useStore = create((set, get) => ({
   alerts: [],
   events: [],
   sim: EMPTY_SIM,
-  showSimulated: readBool(SIM_KEY, false),
+  showSimulated: readBool(SIM_KEY, import.meta.env.VITE_DEMO === '1'), // the online demo has only simulated nodes
   arming: { mode: 'ARMED', armed: true, schedule: { enabled: false, armAt: '22:00', disarmAt: '06:00' } },
   activity: null,
   notify: { webhook: false, telegram: false, siren: false },

@@ -20,3 +20,4 @@ web-mining-*
 # local HTTPS certificates (server/scripts/make-cert.sh)
 server/certs/
 server/data/session.key
+.vercel

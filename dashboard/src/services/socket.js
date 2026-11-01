@@ -1,5 +1,5 @@
 /** Auto-reconnecting WebSocket client (ws://<host>/ws). */
-import { BASE_URL } from './api';
+import { BASE_URL, DEMO } from './api';
 
 function wsUrl() {
   if (BASE_URL) return BASE_URL.replace(/^http/, 'ws') + '/ws';
@@ -18,6 +18,7 @@ export class Socket {
   }
 
   connect() {
+    if (DEMO) return this.connectDemo();
     if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) return;
     try {
       this.ws = new WebSocket(wsUrl());
@@ -32,6 +33,21 @@ export class Socket {
     };
     this.ws.onclose = () => { this.connected = false; this.statusHandlers.forEach(h => h(false)); this.scheduleReconnect(); };
     this.ws.onerror = () => { try { this.ws.close(); } catch { /* ignore */ } };
+  }
+
+  /** Online demo: attach to the in-page server instead of a WebSocket. */
+  async connectDemo() {
+    if (this.demo) return;
+    this.demo = true;
+    const { default: demo } = await import('../demo/server.gen.js');
+    demo.start();
+    this.connected = true;
+    this.statusHandlers.forEach(h => h(true));
+    demo.connect((raw) => {
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; }
+      this.handlers.forEach(h => { try { h(msg); } catch (e) { console.error(e); } });
+    });
   }
 
   scheduleReconnect() {
