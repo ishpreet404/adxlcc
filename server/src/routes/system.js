@@ -16,6 +16,7 @@ const discovery = require('../services/discovery');
 const profiles = require('../services/profiles');
 const panels = require('../services/panels');
 const commands = require('../services/commands');
+const fusion = require('../services/fusion');
 
 module.exports = (simulator) => {
   const router = express.Router();
@@ -79,6 +80,24 @@ module.exports = (simulator) => {
 
   // ---- sirens: silence all / panic --------------------------------------------
   const realNodeIds = () => registry.list().filter(n => !n.simulated).map(n => n.id);
+  // demo sensitivity: 'ultra' alerts on any footstep above the node's quiet level or any radar
+  // target; 'max' also catches taps and light steps; 'normal' = strict two-sensor rules
+  router.get('/sensitivity', (req, res) => res.json({ ok: true, level: config.SENSITIVITY, calibration: fusion.calibration() }));
+  router.post('/sensitivity', (req, res) => {
+    if (req.body && req.body.recalibrate) {
+      fusion.recalibrate(req.body.nodeId);
+      events.log('SENSITIVITY', `Recalibrating quiet level${req.body.nodeId ? ' on ' + req.body.nodeId : ''} (keep the node still)`, { severity: 'INFO' });
+      return res.json({ ok: true, level: config.SENSITIVITY, recalibrating: true });
+    }
+    const level = String((req.body && req.body.level) || '').toLowerCase();
+    if (!['normal', 'ultra', 'max'].includes(level)) return res.status(400).json({ ok: false, error: 'level must be "normal", "ultra" or "max"' });
+    if (level !== config.SENSITIVITY) fusion.recalibrate();   // each level learns its own quiet level
+    config.SENSITIVITY = level;
+    events.log('SENSITIVITY', `Detection sensitivity set to ${level.toUpperCase()}`, { severity: 'INFO' });
+    if (level === 'normal') registry.list().filter(n => !n.simulated).forEach(n => commands.push(n.id, { mode: 'ECO' }));
+    res.json({ ok: true, level });
+  });
+
   router.post('/silence', (req, res) => {
     const by = String((req.body && req.body.by) || 'operator').slice(0, 32);
     const ids = realNodeIds();

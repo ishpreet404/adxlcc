@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Trash2, Save, PenTool, Check, X, Send, Siren, Map as MapIcon, Cpu, Shapes, Lock, Ruler, Bell, Server, FlaskConical, Smartphone, Keyboard, Undo2 } from 'lucide-react';
+import { Trash2, Save, PenTool, Check, X, Send, Siren, Map as MapIcon, Cpu, Shapes, Lock, Ruler, Bell, Server, FlaskConical, Smartphone, Keyboard, Undo2, Activity } from 'lucide-react';
 import useStore from '../store/useStore';
 import api from '../services/api';
 import { Card, Button, Input, Select, Tag, Spinner } from '../components';
@@ -121,6 +121,70 @@ const ArmingPanel = () => {
           <Button size="sm" variant="outline" onClick={() => api.setSchedule(sched).then(() => toast({ kind: 'CMD', severity: 'INFO', title: 'Schedule saved', ttl: 2500 })).catch(fail('Schedule not saved'))}><Save className="w-3.5 h-3.5" aria-hidden="true" />Save</Button>
         </div>
       </div>
+    </div>
+  );
+};
+
+const SENSITIVITY = [
+  { id: 'normal', label: 'Normal', help: 'Strict: two sensors must agree and vibration must pass 0.02 g. Fewest false alarms.' },
+  { id: 'ultra', label: 'Ultra', help: 'Learns each node\'s quiet level for ~20 s, then any step 1.4× above it, or any radar target, alarms at ~95 %. Nodes stream live.' },
+  { id: 'max', label: 'Max', help: 'Learns for ~30 s, then alarms at 1.15× the quiet level: light steps, taps and knocks. Doors and dropped bags will also alarm.' }
+];
+
+/** Detection sensitivity for real nodes (simulated nodes keep the strict rules). */
+const SensitivityPanel = () => {
+  const toast = useStore(s => s.toast);
+  const fail = useErrorToast();
+  const [state, setState] = useState({ level: null, calibration: {} });
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () => api.sensitivity().then(r => alive && setState({ level: r.level, calibration: r.calibration || {} })).catch(() => {});
+    load();
+    const t = setInterval(load, 2000);   // calibration progress
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  const level = state.level;
+  const choose = (id) => {
+    if (id === level || busy) return;
+    setBusy(true);
+    api.setSensitivity(id)
+      .then(r => { setState(s => ({ ...s, level: r.level, calibration: {} })); toast({ kind: 'CMD', severity: 'INFO', title: `Sensitivity: ${titleCase(r.level)}`, message: 'Keep the nodes still while they calibrate', ttl: 3000 }); })
+      .catch(fail('Sensitivity not changed'))
+      .finally(() => setBusy(false));
+  };
+  const recalibrate = () => {
+    setBusy(true);
+    api.recalibrate()
+      .then(() => { setState(s => ({ ...s, calibration: {} })); toast({ kind: 'CMD', severity: 'INFO', title: 'Recalibrating', message: 'Keep the nodes still and stay out of the radar', ttl: 3000 }); })
+      .catch(fail('Recalibration failed'))
+      .finally(() => setBusy(false));
+  };
+  const cur = SENSITIVITY.find(x => x.id === level);
+  const cal = Object.entries(state.calibration);
+  return (
+    <div className="space-y-3 text-[13px]">
+      <div className="grid grid-cols-3 gap-1 p-1 rounded-lg border border-terminal-border" role="radiogroup" aria-label="Detection sensitivity">
+        {SENSITIVITY.map(x => (
+          <button key={x.id} type="button" role="radio" aria-checked={level === x.id} disabled={busy} onClick={() => choose(x.id)}
+            className={`h-9 rounded-md text-[13px] font-medium transition-colors disabled:opacity-60 ${level === x.id ? (x.id === 'max' ? 'bg-terminal-red/20 text-red-100 border border-terminal-red/50' : x.id === 'ultra' ? 'bg-terminal-amber/15 text-amber-100 border border-terminal-amber/50' : 'bg-white/10 text-white border border-terminal-border') : 'text-terminal-muted hover:bg-white/5'}`}>
+            {x.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-terminal-muted text-[12px]">{cur ? cur.help : 'Loading…'}</p>
+      {level && level !== 'normal' && (
+        <div className="pt-3 border-t border-terminal-border space-y-2">
+          {cal.length === 0 && <p className="text-[12px] text-terminal-muted">Calibration starts with each node's next packet.</p>}
+          {cal.map(([id, c]) => (
+            <div key={id} className="space-y-1">
+              <div className="flex justify-between text-[12px]"><span className="text-gray-200">{id}</span><span className="text-terminal-muted tabular-nums">{c.percent < 100 ? `calibrating ${c.percent}%` : `quiet ${c.quietRmsG} g · peak ${c.quietPeakG} g`}</span></div>
+              <div className="h-1.5 rounded-full bg-white/5 overflow-hidden"><div className={`h-full ${c.percent < 100 ? 'bg-terminal-amber' : 'bg-emerald-500'}`} style={{ width: `${c.percent}%` }} /></div>
+            </div>
+          ))}
+          <Button size="sm" variant="outline" disabled={busy} onClick={recalibrate}>Recalibrate (keep nodes still)</Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -261,6 +325,7 @@ export const Setup = () => {
         </div>
         <div className="xl:col-span-5 space-y-4 min-w-0">
           <Card title="Arming" icon={Lock}><ArmingPanel /></Card>
+          <Card title="Detection sensitivity" subtitle="Real nodes only" icon={Activity}><SensitivityPanel /></Card>
           <Card title="Demo data" subtitle="Simulator nodes are hidden by default" icon={FlaskConical}>
             <SimToggle />
             <p className="text-[12px] text-terminal-muted mt-3">When on, simulated nodes, alerts and events appear everywhere with a <Tag tone="violet">SIM</Tag> badge. Real hardware is always shown. Saved in this browser.</p>

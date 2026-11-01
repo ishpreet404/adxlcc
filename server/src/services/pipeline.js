@@ -42,6 +42,7 @@ function smoothMl(nodeId, ml, now) {
 }
 const loiterState = new Map();   // nodeId -> { since, dist, raised }
 const prearmAt = new Map();      // nodeId -> last pre-arm time
+const liveHeldAt = new Map();    // nodeId -> last LIVE hold sent in ultra demo mode
 
 registry.onStatusChange((node, from, to) => {
   if (to === 'ONLINE' && from !== 'ONLINE') events.log('NODE_ONLINE', `${node.name} online via ${node.transport || '?'}`, { nodeId: node.id });
@@ -89,6 +90,7 @@ function ingest(raw, meta = {}) {
   const running = Boolean(ml && ml.label === 'HUMAN' && features && features.rms > 0.03 && features.crestFactor > 2 && features.interPeakInterval >= 200 && features.interPeakInterval < 420);
 
   // ---- fusion + localisation --------------------------------------------
+  t.simulated = Boolean(node.simulated);
   const fusion = fusionEngine.evaluate(t, ml);
   fusion.nodeMl = nodeMl ? { label: nodeMl.label, confidence: nodeMl.confidence } : null;
   fusion.serverMl = serverMl ? { label: serverMl.label, confidence: serverMl.confidence, explanation: serverMl.explanation, source: serverMl.source, raw: serverMl.raw, probs: serverMl.probs } : null;
@@ -162,6 +164,15 @@ function ingest(raw, meta = {}) {
 
   if (t.offlineAlarms > 0 && !node.simulated) {
     events.log('OFFLINE_ALARM', `${node.name} sounded its siren ${t.offlineAlarms} time${t.offlineAlarms === 1 ? '' : 's'} on its own while the server was unreachable`, { nodeId: node.id, severity: 'HIGH' });
+  }
+
+  // ultra/max demo modes: keep every real node streaming (LIVE, 4 packets/s with waveforms) so a single
+  // footstep between ECO heartbeats is not missed. On battery this costs ~200 mA (≈15 h on an 18650).
+  if (config.SENSITIVITY !== 'normal' && !node.simulated && t.mode !== 'LIVE') {
+    if (Date.now() - (liveHeldAt.get(node.id) || 0) > 30000) {
+      liveHeldAt.set(node.id, Date.now());
+      commands.push(node.id, { mode: 'LIVE', liveFor: 600 });
+    }
   }
 
   const cmd = commands.drain(node.id);

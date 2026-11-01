@@ -23,6 +23,11 @@ module.exports = {
   CRITICAL_THRESHOLD: num(process.env.CRITICAL_THRESHOLD, 0.88),
   ALERT_COOLDOWN_MS: num(process.env.ALERT_COOLDOWN_MS, 30000),
   ALERT_DEBOUNCE_PACKETS: 2,
+  // Detection sensitivity (real nodes): 'normal' = strict two-sensor rules; 'ultra' (default) =
+  // per-node adaptive floor, any footstep or radar target alerts on one packet, nodes held in
+  // LIVE; 'max' = as ultra with lower ratios, catches taps and light steps.
+  // Switch at runtime: POST /api/system/sensitivity {"level":"normal"|"ultra"|"max"}
+  SENSITIVITY: ['normal', 'ultra', 'max'].includes((process.env.SENSITIVITY || '').toLowerCase()) ? process.env.SENSITIVITY.toLowerCase() : 'ultra',
 
   NODE_WARN_MS: num(process.env.NODE_WARN_MS, 45000),
   NODE_OFFLINE_MS: num(process.env.NODE_OFFLINE_MS, 120000),

@@ -5,6 +5,7 @@ const commands = require('../services/commands');
 const events = require('../services/events');
 const realtime = require('../services/realtime');
 const tracks = require('../services/tracks');
+const fusion = require('../services/fusion');
 
 const router = express.Router();
 
@@ -57,7 +58,7 @@ router.post('/:id/command', (req, res) => {
   if (body.liveFor) cmd.liveFor = Math.max(10, Math.min(3600, Number(body.liveFor)));
   if (body.reboot) cmd.reboot = true;
   if (body.sleepS) cmd.sleepS = Math.max(5, Math.min(3600, Number(body.sleepS)));
-  if (body.calibrate) cmd.calibrate = true;
+  if (body.calibrate) { cmd.calibrate = true; fusion.recalibrate(n.id); }   // server re-learns the quiet level too
   if (body.deter) cmd.deter = Math.max(1, Math.min(120, Number(body.deter) || 10));
   if (body.silence) { cmd.silence = true; delete cmd.deter; }
   if (!Object.keys(cmd).length) return res.status(400).json({ ok: false, error: 'no valid command' });

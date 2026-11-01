@@ -67,6 +67,9 @@ export const api = {
   arming: () => request('/api/system/arming'),
   setArming: (mode, by = 'operator') => post('/api/system/arming', { mode, by }),
   setSchedule: (patch) => put('/api/system/arming/schedule', patch),
+  sensitivity: () => request('/api/system/sensitivity'),
+  setSensitivity: (level) => post('/api/system/sensitivity', { level }),
+  recalibrate: (nodeId) => post('/api/system/sensitivity', { recalibrate: true, nodeId }),
 
   notifyStatus: () => request('/api/system/notify'),
   notifyTest: () => post('/api/system/notify/test'),

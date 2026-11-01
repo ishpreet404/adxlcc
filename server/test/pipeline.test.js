@@ -14,6 +14,7 @@ const { extract, FEATURE_ORDER } = require('../src/ml/features');
 const { VibrationClassifier } = require('../src/ml/classifier');
 const localization = require('../src/services/localization');
 const fusion = require('../src/services/fusion');
+const config = require('../src/config');
 const registry = require('../src/services/registry');
 const pipeline = require('../src/services/pipeline');
 const { crossCorrelate } = require('../src/services/simulator');
@@ -87,7 +88,14 @@ test('localiser: seismic-only estimate falls back to energy range and lower conf
   assert.ok(est.rangeM > 1 && est.rangeM <= 8);
 });
 
-test('fusion: a single modality can never reach the alert threshold', () => {
+/** Run fn with the given detection sensitivity, then restore the previous one. */
+function withSensitivity(level, fn) {
+  const prev = config.SENSITIVITY;
+  config.SENSITIVITY = level;
+  try { return fn(); } finally { config.SENSITIVITY = prev; }
+}
+
+test('fusion: a single modality can never reach the alert threshold (normal sensitivity)', () => withSensitivity('normal', () => {
   const t = {
     radar: { ok: true, presence: true, distance: 3, energy: 90 },
     probes: [{ ok: true, rms: 0.005 }, { ok: true, rms: 0.005 }],
@@ -99,12 +107,41 @@ test('fusion: a single modality can never reach the alert threshold', () => {
     { label: 'HUMAN', probs: { NORMAL: 0.02, HUMAN: 0.9, VEHICLE: 0.04, ENVIRONMENT: 0.04 } });
   assert.ok(full.isAlertCandidate && full.probability > 0.85, `full evidence p=${full.probability}`);
   assert.equal(full.targetClass, 'HUMAN');
-});
+}));
 
-test('fusion: environmental classification with a clear radar is suppressed', () => {
+test('fusion: environmental classification with a clear radar is suppressed (normal sensitivity)', () => withSensitivity('normal', () => {
   const r = fusion.evaluate({ radar: { ok: true, presence: false, distance: 0, energy: 0 }, probes: [{ ok: true, rms: 0.2 }, { ok: true, rms: 0.18 }], seismic: { corr: 0.7 } },
     { label: 'ENVIRONMENT', probs: { NORMAL: 0.05, HUMAN: 0.05, VEHICLE: 0.05, ENVIRONMENT: 0.85 } });
   assert.ok(r.probability <= 0.4, `wind p=${r.probability}`);
+}));
+
+test('fusion: ultra sensitivity alerts on a footstep above the node quiet level, not on its quiet level', () => withSensitivity('ultra', () => {
+  const quiet = { nodeId: 'U1', radar: { ok: true, presence: false, distance: 0, energy: 0 }, probes: [{ ok: true, rms: 0.003, peak: 0.007 }, { ok: true, rms: 0.003, peak: 0.007 }], seismic: { corr: 0 } };
+  const during = fusion.evaluate(quiet, null);
+  assert.ok(!during.isAlertCandidate && /Calibrating/.test(during.note), 'first packets calibrate');
+  for (let i = 0; i < fusion.LEVELS.ultra.CAL_PACKETS + 5; i++) fusion.evaluate(quiet, null);   // learn the quiet level
+  assert.ok(!fusion.evaluate(quiet, null).isAlertCandidate, 'quiet floor must not alert');
+  const step = fusion.evaluate({ ...quiet, probes: [{ ok: true, rms: 0.012, peak: 0.03 }, { ok: true, rms: 0.009, peak: 0.025 }] }, null);
+  assert.ok(step.isAlertCandidate && step.probability >= 0.85 && step.probability <= 0.9, `footstep p=${step.probability}`);
+  assert.equal(step.targetClass, 'HUMAN');
+  const sim = fusion.evaluate({ ...quiet, simulated: true, probes: [{ ok: true, rms: 0.012, peak: 0.03 }, { ok: true, rms: 0.009, peak: 0.025 }] }, null);
+  assert.ok(!sim.isAlertCandidate, 'simulated nodes keep the strict rules');
+  const spike = fusion.evaluate({ ...quiet, probes: [{ ok: true, rms: 0.0036, peak: 0.008, staLta: 2.4 }, { ok: true, rms: 0.0031, peak: 0.007, staLta: 1.1 }] }, null);
+  assert.ok(spike.isAlertCandidate, `a single-step STA/LTA spike alerts even when the window RMS barely moves, p=${spike.probability}`);
+}));
+
+test('fusion: max sensitivity catches a light tap that ultra ignores', () => {
+  const quiet = { radar: { ok: true, presence: false, distance: 0, energy: 0 }, probes: [{ ok: true, rms: 0.003, peak: 0.007 }, { ok: true, rms: 0.003, peak: 0.007 }], seismic: { corr: 0 } };
+  const tap = { probes: [{ ok: true, rms: 0.00375, peak: 0.0085 }, { ok: true, rms: 0.0036, peak: 0.008 }] };
+  const run = (level, id) => withSensitivity(level, () => {
+    const q = { ...quiet, nodeId: id };
+    for (let i = 0; i < fusion.LEVELS[level].CAL_PACKETS + 5; i++) fusion.evaluate(q, null);
+    assert.ok(!fusion.evaluate(q, null).isAlertCandidate, `${level}: quiet floor must not alert`);
+    return fusion.evaluate({ ...q, ...tap }, null);
+  });
+  assert.ok(!run('ultra', 'M1').isAlertCandidate, 'ultra ignores a 1.25x tap');
+  const r = run('max', 'M2');
+  assert.ok(r.isAlertCandidate && r.probability >= 0.85, `max catches a 1.25x tap, p=${r.probability}`);
 });
 
 test('ingest pipeline: v2 packet creates the node, classifies and localises; alert after debounce', () => {

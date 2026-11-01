@@ -136,7 +136,7 @@ class Alerts {
     }
     const hits = (this.hits.get(id) || 0) + 1;
     this.hits.set(id, hits);
-    if (hits < config.ALERT_DEBOUNCE_PACKETS) return null;
+    if (hits < (config.SENSITIVITY !== 'normal' && !node.simulated ? 1 : config.ALERT_DEBOUNCE_PACKETS)) return null;
 
     const tr = ctx.track;
     const kin = tr ? { speed: tr.speed, headingDeg: tr.headingDeg, running: tr.running, eta: tr.eta, method: tr.method, trackId: tr.id } : null;
